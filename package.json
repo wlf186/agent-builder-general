@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "@assistant-ui/react": "^0.12.14",
+    "framer-motion": "^12.34.3",
+    "lucide-react": "^0.575.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@tailwindcss/postcss": "^4.2.1",
+    "@tailwindcss/typography": "^0.5.19"
+  }
+}
