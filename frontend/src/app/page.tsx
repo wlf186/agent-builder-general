@@ -27,6 +27,7 @@ import {
   Clock,
   Zap,
   Hash,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,7 @@ import { MCPServiceDialog } from "@/components/MCPServiceDialog";
 import { ModelServiceDialog, ModelService } from "@/components/ModelServiceDialog";
 import { SkillDetailDialog } from "@/components/SkillDetailDialog";
 import { SkillUploadDialog } from "@/components/SkillUploadDialog";
+import { ConversationDrawer } from "@/components/ConversationDrawer";
 import { useLocale } from "@/lib/LocaleContext";
 
 const API_BASE = "/api";
@@ -143,6 +145,11 @@ export default function Home() {
   const [configAdvancedExpanded, setConfigAdvancedExpanded] = useState(false);
   const [configToolsExpanded, setConfigToolsExpanded] = useState(true);
   const [configSkillsExpanded, setConfigSkillsExpanded] = useState(true);
+
+  // 巻加历史会话相关状态
+  const [conversationDrawerOpen, setConversationDrawerOpen] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [currentConversationMessages, setCurrentConversationMessages] = useState<any[]>([]);
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -1560,15 +1567,54 @@ export default function Home() {
           className="flex-1 min-w-0"
         >
           <Card className="sticky top-24 overflow-hidden h-[calc(100vh-180px)] min-h-[500px]">
-            <div className="px-5 py-4 border-b border-white/[0.05] flex items-center gap-3 bg-white/[0.02]">
-              <Bot size={16} className="text-emerald-400" />
-              <span className="font-medium text-sm text-gray-300">{t("debugChat")}</span>
+            <div className="px-5 py-4 border-b border-white/[0.05] flex items-center justify-between bg-white/[0.02]">
+              <div className="flex items-center gap-3">
+                <Bot size={16} className="text-emerald-400" />
+                <span className="font-medium text-sm text-gray-300">{t("debugChat")}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* 巻加历史按钮 */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setConversationDrawerOpen(true)}
+                  className="text-xs text-gray-400 hover:text-white hover:bg-white/10"
+                >
+                  <History className="w-3.5 h-3.5 mr-1.5" />
+                  {t("historyConversations")}
+                </Button>
+              </div>
             </div>
             <div className="h-[calc(100%-57px)]">
-              <AgentChat agentName={selectedAgent || ""} shortTermMemory={shortTermMemory} />
+              <AgentChat
+                agentName={selectedAgent || ""}
+                shortTermMemory={shortTermMemory}
+                conversationId={currentConversationId}
+                onConversationChange={(id, messages) => {
+                  setCurrentConversationId(id);
+                  setCurrentConversationMessages(messages);
+                }}
+              />
             </div>
           </Card>
         </motion.div>
+
+        {/* 巻加历史会话抽屉 */}
+        <ConversationDrawer
+          open={conversationDrawerOpen}
+          onClose={() => setConversationDrawerOpen(false)}
+          agentName={selectedAgent || ""}
+          currentConversationId={currentConversationId}
+          onSelectConversation={(id) => {
+            setCurrentConversationId(id);
+            setConversationDrawerOpen(false);
+          }}
+          onNewConversation={() => {
+            setCurrentConversationId(null);
+            setCurrentConversationMessages([]);
+            setConversationDrawerOpen(false);
+          }}
+        />
       </div>
     </div>
   );

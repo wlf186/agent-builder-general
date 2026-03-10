@@ -145,3 +145,28 @@ class Message(BaseModel):
     content: str = Field(description="消息内容")
     tool_calls: Optional[List[Dict]] = Field(default=None)
     tool_call_id: Optional[str] = Field(default=None)
+
+
+class ConversationConfig(BaseModel):
+    """会话配置"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="会话唯一ID")
+    agent_name: str = Field(default="", description="所属智能体名称")
+    title: str = Field(default="新对话", description="会话标题")
+    messages: List[Dict[str, Any]] = Field(default_factory=list, description="消息列表")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="更新时间")
+
+    def get_preview(self, max_length: int = 50) -> str:
+        """获取会话预览文本"""
+        if not self.messages:
+            return ""
+        # 获取第一条用户消息作为预览
+        for msg in self.messages:
+            if msg.get("role") == "user" and msg.get("content"):
+                content = msg.get("content", "")
+                return content[:max_length] + "..." if len(content) > max_length else content
+        return ""
+
+    def get_message_count(self) -> int:
+        """获取消息数量"""
+        return len(self.messages)

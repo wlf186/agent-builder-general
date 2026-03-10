@@ -23,6 +23,7 @@ from src.skill_registry import SkillRegistry
 from src.skill_loader import SkillLoader
 from src.model_service_registry import ModelServiceRegistry
 from src.model_provider_tester import test_model_service_connection
+from src.conversation_manager import ConversationManager
 
 
 # 初始化
@@ -31,6 +32,7 @@ SKILLS_DIR = Path(__file__).parent / "skills"
 mcp_registry = MCPServiceRegistry(DATA_DIR)
 skill_registry = SkillRegistry(DATA_DIR, SKILLS_DIR)
 model_service_registry = ModelServiceRegistry(DATA_DIR)
+conversation_manager = ConversationManager(DATA_DIR)
 manager = AgentManager(DATA_DIR, mcp_registry, skill_registry, model_service_registry=model_service_registry)
 
 # 注册预置 MCP 服务
@@ -885,6 +887,157 @@ async def get_default_url(provider: str):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# === Conversations API ===
+
+class CreateConversationRequest(BaseModel):
+    """创建会话请求"""
+    title: Optional[str] = None
+
+
+class UpdateConversationRequest(BaseModel):
+    """更新会话请求"""
+    title: str
+
+
+class AddMessageRequest(BaseModel):
+    """添加消息请求"""
+    role: str
+    content: str
+    thinking: Optional[str] = None
+    tool_calls: Optional[List[Dict]] = None
+    metrics: Optional[Dict] = None
+
+
+class SaveMessagesRequest(BaseModel):
+    """批量保存消息请求"""
+    messages: List[Dict]
+
+
+@app.get("/api/agents/{name}/conversations")
+async def list_conversations(name: str):
+    """获取会话列表"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    conversations = conversation_manager.list_conversations(name)
+    return {
+        "conversations": conversations,
+        "total": len(conversations)
+    }
+
+
+@app.post("/api/agents/{name}/conversations")
+async def create_conversation(name: str, req: CreateConversationRequest):
+    """创建新会话"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    conversation = conversation_manager.create_conversation(name, req.title)
+    return {
+        "id": conversation.id,
+        "title": conversation.title,
+        "messages": conversation.messages,
+        "created_at": conversation.created_at,
+        "updated_at": conversation.updated_at
+    }
+
+
+@app.get("/api/agents/{name}/conversations/{conversation_id}")
+async def get_conversation(name: str, conversation_id: str):
+    """获取会话详情"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    conversation = conversation_manager.get_conversation(name, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    return {
+        "id": conversation.id,
+        "title": conversation.title,
+        "messages": conversation.messages,
+        "created_at": conversation.created_at,
+        "updated_at": conversation.updated_at
+    }
+
+
+@app.put("/api/agents/{name}/conversations/{conversation_id}")
+async def update_conversation(name: str, conversation_id: str, req: UpdateConversationRequest):
+    """更新会话（重命名）"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    conversation = conversation_manager.update_conversation(name, conversation_id, req.title)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    return {
+        "success": True,
+        "conversation": {
+            "id": conversation.id,
+            "title": conversation.title,
+            "updated_at": conversation.updated_at
+        }
+    }
+
+
+@app.delete("/api/agents/{name}/conversations/{conversation_id}")
+async def delete_conversation(name: str, conversation_id: str):
+    """删除会话"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    if conversation_manager.delete_conversation(name, conversation_id):
+        return {"success": True}
+    else:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+
+@app.post("/api/agents/{name}/conversations/{conversation_id}/messages")
+async def add_conversation_message(name: str, conversation_id: str, req: AddMessageRequest):
+    """添加消息到会话"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    message = conversation_manager.add_message(
+        name,
+        conversation_id,
+        req.role,
+        req.content,
+        req.thinking,
+        req.tool_calls,
+        req.metrics
+    )
+    if not message:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    return {
+        "success": True,
+        "message": message
+    }
+
+
+@app.post("/api/agents/{name}/conversations/{conversation_id}/save")
+async def save_conversation_messages(name: str, conversation_id: str, req: SaveMessagesRequest):
+    """批量保存会话消息"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    conversation = conversation_manager.save_messages(name, conversation_id, req.messages)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    return {
+        "success": True,
+        "conversation": {
+            "id": conversation.id,
+            "title": conversation.title,
+            "message_count": len(conversation.messages),
+            "updated_at": conversation.updated_at
+        }
+    }
 
 
 # === 日志收集 ===

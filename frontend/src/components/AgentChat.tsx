@@ -91,9 +91,11 @@ interface PerformanceMetrics {
 interface AgentChatProps {
   agentName: string;
   shortTermMemory?: number;
+  conversationId?: string | null;
+  onConversationChange?: (id: string, messages: ChatMessage[]) => void;
 }
 
-export function AgentChat({ agentName, shortTermMemory = 5 }: AgentChatProps) {
+export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onConversationChange }: AgentChatProps) {
   const { locale, t } = useLocale();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -448,8 +450,13 @@ export function AgentChat({ agentName, shortTermMemory = 5 }: AgentChatProps) {
     } finally {
       setIsRunning(false);
       abortControllerRef.current = null;
+
+      // 保存会话消息到后端
+      if (conversationId && onConversationChange && messages.length > 0) {
+        onConversationChange(conversationId, messages);
+      }
     }
-  }, [inputValue, isRunning, agentName, locale, messages, shortTermMemory, scrollToBottom, t]);
+  }, [inputValue, isRunning, agentName, locale, messages, shortTermMemory, scrollToBottom, t, conversationId, onConversationChange]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {

@@ -154,10 +154,8 @@ export const translations = {
     modelProviderOllama: "Ollama",
     modelServiceUrl: "服务地址",
     modelServiceUrlPlaceholder: "API 基础 URL",
-    testConnection: "测试连接",
     connectionSuccess: "连接成功",
     connectionFailed: "连接失败",
-    testing: "测试中...",
     selectModel: "选择模型",
     pleaseSelectModel: "请选择模型",
     availableModelsCount: "共 {count} 个可用模型",
@@ -167,6 +165,17 @@ export const translations = {
     modelServiceConfigDesc: "选择此 Agent 使用的模型服务",
     noModelServiceSelected: "未选择模型服务",
     modelInfo: "模型信息",
+
+    // 历史会话
+    historyConversations: "历史会话",
+    newConversation: "新对话",
+    searchConversations: "搜索会话...",
+    noConversations: "暂无历史会话",
+    noConversationsDesc: "开始对话后会自动保存在这里",
+    rename: "重命名",
+    deleteConversation: "删除会话",
+    deleteConfirm: "确定删除此会话？",
+    deleteWarning: "删除后无法恢复",
   },
   en: {
     // Common
@@ -320,10 +329,8 @@ export const translations = {
     modelProviderOllama: "Ollama",
     modelServiceUrl: "Service URL",
     modelServiceUrlPlaceholder: "API Base URL",
-    testConnection: "Test Connection",
     connectionSuccess: "Connection successful",
     connectionFailed: "Connection failed",
-    testing: "Testing...",
     selectModel: "Select Model",
     pleaseSelectModel: "Please select a model",
     availableModelsCount: "{count} models available",
@@ -333,6 +340,17 @@ export const translations = {
     modelServiceConfigDesc: "Select the model service for this agent",
     noModelServiceSelected: "No model service selected",
     modelInfo: "Model Info",
+
+    // History Conversations
+    historyConversations: "History",
+    newConversation: "New Chat",
+    searchConversations: "Search conversations...",
+    noConversations: "No conversations yet",
+    noConversationsDesc: "Your conversations will be saved here automatically",
+    rename: "Rename",
+    deleteConversation: "Delete Chat",
+    deleteConfirm: "Delete this conversation?",
+    deleteWarning: "This cannot be undone",
   },
 };
 
