@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 Agent Builder is a general-purpose AI agent construction platform that allows users to create, configure, and interact with AI agents. It features:
-- Multi-LLM support (Ollama, ZhipuAI)
+- Multi-LLM support via Model Service Registry (ZhipuAI, Alibaba Bailian, Ollama)
 - MCP (Model Context Protocol) integration for tool use
-- Skills system for extending agent capabilities
+- Skills system for extending agent capabilities (16 builtin skills)
 - Multiple planning modes (React, Reflexion, Plan & Solve, ReWOO, Tree of Thought)
 - Streaming chat responses with thinking/tool-call visibility
 
@@ -18,22 +18,24 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 │                    Frontend (Next.js 15)                     │
 │                    Port: 20880                               │
 │  Components: AgentChat, MCPServiceDialog, SkillDetailDialog │
+│              ModelServiceDialog, SkillUploadDialog           │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                   Backend (FastAPI)                          │
 │                    Port: 20881                               │
-│  Routes: /api/agents, /api/mcp-services, /api/skills        │
+│  Routes: /api/agents, /api/mcp-services, /api/skills,       │
+│          /api/model-services                                 │
 └─────────────────────────────────────────────────────────────┘
                               │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-┌───────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│ AgentManager  │   │ MCPServiceRegistry│   │  SkillRegistry  │
-│ AgentInstance │   │   MCPManager      │   │   SkillLoader   │
-│  AgentEngine  │   │ (stdio/SSE modes) │   │  (builtin/user) │
-└───────────────┘   └─────────────────┘   └─────────────────┘
+        ┌─────────────────────┼─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼                     ▼
+┌───────────────┐   ┌─────────────────┐   ┌─────────────────┐   ┌───────────────────┐
+│ AgentManager  │   │ MCPServiceRegistry│  │  SkillRegistry  │   │ModelServiceRegistry│
+│ AgentInstance │   │   MCPManager      │   │   SkillLoader   │   │ (Zhipu/Bailian/   │
+│  AgentEngine  │   │ (stdio/SSE modes) │   │  (builtin/user) │   │    Ollama)        │
+└───────────────┘   └─────────────────┘   └─────────────────┘   └───────────────────┘
         │                     │
         ▼                     ▼
 ┌───────────────┐   ┌─────────────────────────────────────────┐
@@ -44,10 +46,11 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 
 ### Core Components
 
-- **`backend.py`**: FastAPI server with REST API endpoints for agents, MCP services, and skills
+- **`backend.py`**: FastAPI server with REST API endpoints for agents, MCP services, skills, and model services
 - **`src/agent_engine.py`**: LangGraph-based agent engine with multiple planning modes
 - **`src/agent_manager.py`**: Manages agent configurations and instances
 - **`src/mcp_manager.py`**: Handles MCP tool connections (stdio and SSE modes)
+- **`src/model_service_registry.py`**: Global registry for LLM model service configurations
 - **`src/mcp_registry.py`**: Global MCP service configuration registry
 - **`src/skill_registry.py`**: Manages skill registration and discovery
 - **`src/builtin_services.py`**: Auto-starts builtin MCP services on startup
@@ -142,11 +145,16 @@ Skills are loaded from `SKILL.md` files in `skills/` directories. Each skill:
 
 ## LLM Configuration
 
-Supported providers (in `LLMProvider` enum):
-- `ollama`: Local Ollama server (default: `qwen2.5:7b`)
-- `zhipu`: ZhipuAI API (GLM models)
+Agents reference model services via `model_service` field (string name of registered service).
 
-Configure via agent settings: `llm_provider`, `llm_model`, `llm_base_url`, `temperature`
+Supported providers (in `ModelProvider` enum):
+- `zhipu`: ZhipuAI API (GLM models)
+- `alibaba_bailian`: Alibaba Bailian API
+- `ollama`: Local Ollama server
+
+Configure model services via `/api/model-services` endpoints. Each service defines: `provider`, `base_url`, `api_key`, `selected_model`.
+
+**Legacy fields** (`llm_provider`, `llm_model`, `llm_base_url`) are deprecated but retained for data migration.
 
 ## Ports
 
@@ -155,3 +163,16 @@ Configure via agent settings: `llm_provider`, `llm_model`, `llm_base_url`, `temp
 | Frontend (Next.js) | 20880 |
 | Backend (FastAPI) | 20881 |
 | MCP SSE Server | 20882 |
+
+## API Endpoints
+
+| Resource | Endpoints |
+|----------|-----------|
+| Agents | `GET/POST /api/agents`, `GET/PUT/DELETE /api/agents/{name}`, `POST /api/agents/{name}/chat`, `POST /api/agents/{name}/chat/stream` |
+| MCP Services | `GET/POST /api/mcp-services`, `GET/PUT/DELETE /api/mcp-services/{name}`, `POST /api/mcp-services/{name}/test`, `GET /api/mcp-services/{name}/tools` |
+| Skills | `GET /api/skills`, `GET/DELETE /api/skills/{name}`, `GET /api/skills/{name}/files/{path}`, `POST /api/skills/upload` |
+| Model Services | `GET/POST /api/model-services`, `GET/PUT/DELETE /api/model-services/{name}`, `POST /api/model-services/test`, `GET /api/model-services/default-url/{provider}` |
+
+## Debugging
+
+See `badcase.md` for troubleshooting guidance on streaming issues and debugging tools (Playwright automation, SSE testing scripts).
