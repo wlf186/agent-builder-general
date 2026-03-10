@@ -10,6 +10,7 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 - Skills system for extending agent capabilities (16 builtin skills)
 - Multiple planning modes (React, Reflexion, Plan & Solve, ReWOO, Tree of Thought)
 - Streaming chat responses with thinking/tool-call visibility
+- Conversation history management with drawer-style UI
 
 ## Architecture
 
@@ -19,6 +20,8 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 │                    Port: 20880                               │
 │  Components: AgentChat, MCPServiceDialog, SkillDetailDialog │
 │              ModelServiceDialog, SkillUploadDialog           │
+│              ConversationDrawer, ConversationList,           │
+│              ConversationCard                                │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -26,16 +29,16 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 │                   Backend (FastAPI)                          │
 │                    Port: 20881                               │
 │  Routes: /api/agents, /api/mcp-services, /api/skills,       │
-│          /api/model-services                                 │
+│          /api/model-services, /api/agents/{name}/conversations │
 └─────────────────────────────────────────────────────────────┘
                               │
-        ┌─────────────────────┼─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼                     ▼
-┌───────────────┐   ┌─────────────────┐   ┌─────────────────┐   ┌───────────────────┐
-│ AgentManager  │   │ MCPServiceRegistry│  │  SkillRegistry  │   │ModelServiceRegistry│
-│ AgentInstance │   │   MCPManager      │   │   SkillLoader   │   │ (Zhipu/Bailian/   │
-│  AgentEngine  │   │ (stdio/SSE modes) │   │  (builtin/user) │   │    Ollama)        │
-└───────────────┘   └─────────────────┘   └─────────────────┘   └───────────────────┘
+        ┌─────────────────────┼─────────────────────┼─────────────────────┬───────────────────┐
+        ▼                     ▼                     ▼                     ▼                   ▼
+┌───────────────┐   ┌─────────────────┐   ┌─────────────────┐   ┌───────────────────┐   ┌──────────────────┐
+│ AgentManager  │   │ MCPServiceRegistry│  │  SkillRegistry  │   │ModelServiceRegistry│   │ConversationManager│
+│ AgentInstance │   │   MCPManager      │   │   SkillLoader   │   │ (Zhipu/Bailian/   │   │ (JSON persistence)│
+│  AgentEngine  │   │ (stdio/SSE modes) │   │  (builtin/user) │   │    Ollama)        │   │                  │
+└───────────────┘   └─────────────────┘   └─────────────────┘   └───────────────────┘   └──────────────────┘
         │                     │
         ▼                     ▼
 ┌───────────────┐   ┌─────────────────────────────────────────┐
@@ -49,6 +52,7 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 - **`backend.py`**: FastAPI server with REST API endpoints for agents, MCP services, skills, and model services
 - **`src/agent_engine.py`**: LangGraph-based agent engine with multiple planning modes
 - **`src/agent_manager.py`**: Manages agent configurations and instances
+- **`src/conversation_manager.py`**: Manages conversation history CRUD operations and persistence
 - **`src/mcp_manager.py`**: Handles MCP tool connections (stdio and SSE modes)
 - **`src/model_service_registry.py`**: Global registry for LLM model service configurations
 - **`src/mcp_registry.py`**: Global MCP service configuration registry
@@ -61,6 +65,7 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
   - `agent_configs.json`: Saved agent configurations
   - `mcp_services.json`: MCP service registry
   - `skills_index.json`: Skills index
+  - `conversations/{agent_name}/`: Conversation history JSON files per agent
 - **`skills/`**: Skills storage
   - `builtin/`: Pre-installed skills (read from SKILL.md)
   - `user/`: User-uploaded skills
@@ -326,6 +331,71 @@ Skills are loaded from `SKILL.md` files in `skills/` directories. Each skill:
 - Can include YAML frontmatter with version, author, tags
 - Content is injected into agent system prompt when enabled
 
+### Conversation History System
+
+The conversation history feature allows users to manage and resume previous chat sessions with agents.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ page.tsx                                                        │
+│ ├── History Button (调试对话右上角)                              │
+│ └── ConversationDrawer (抽屉组件，从右侧滑出)                    │
+│     ├── Search Box                                              │
+│     ├── New Conversation Button                                  │
+│     └── ConversationList                                        │
+│         ├── Date Groups (今天/昨天/7天内/更早)                   │
+│         └── ConversationCard[] (标题、预览、时间、操作按钮)       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Key Components
+
+| Component | Location | Description |
+|-----------|----------|-------------|
+| `ConversationDrawer` | `frontend/src/components/ConversationDrawer.tsx` | Right-side drawer with search and list |
+| `ConversationList` | `frontend/src/components/ConversationList.tsx` | Time-grouped conversation list |
+| `ConversationCard` | `frontend/src/components/ConversationCard.tsx` | Individual conversation card with actions |
+| `ConversationManager` | `src/conversation_manager.py` | Backend CRUD operations for conversations |
+
+#### Data Model
+
+```typescript
+interface Conversation {
+  id: string;              // UUID
+  agent_name: string;      // 所属智能体
+  title: string;           // 会话标题 (自动生成或用户重命名)
+  preview: string;         // 预览文本 (最后一条消息截断)
+  message_count: number;   // 消息数量
+  created_at: string;      // ISO 8601 timestamp
+  updated_at: string;      // ISO 8601 timestamp
+  messages: ChatMessage[]; // 完整消息列表
+}
+```
+
+#### Storage
+
+Conversations are persisted as JSON files in `data/conversations/{agent_name}/{conversation_id}.json`.
+
+#### Integration with AgentChat
+
+The `AgentChat` component accepts optional conversation props:
+```typescript
+interface AgentChatProps {
+  agentName: string;
+  shortTermMemory?: number;
+  conversationId?: string | null;              // 当前会话 ID
+  onConversationChange?: (id: string, messages: ChatMessage[]) => void;
+}
+```
+
+When a conversation is selected from history:
+1. `page.tsx` sets `currentConversationId` and `currentConversationMessages`
+2. `AgentChat` loads historical messages into the chat view
+3. New messages are appended and auto-saved to the conversation
+4. Chat behavior respects current "高级设置" constraints (e.g., `short_term_memory`)
+
 ## LLM Configuration
 
 Agents reference model services via `model_service` field (string name of registered service).
@@ -352,6 +422,7 @@ Configure model services via `/api/model-services` endpoints. Each service defin
 | Resource | Endpoints |
 |----------|-----------|
 | Agents | `GET/POST /api/agents`, `GET/PUT/DELETE /api/agents/{name}`, `POST /api/agents/{name}/chat`, `POST /api/agents/{name}/chat/stream` |
+| Conversations | `GET/POST /api/agents/{name}/conversations`, `GET/PUT/DELETE /api/agents/{name}/conversations/{id}`, `POST /api/agents/{name}/conversations/{id}/messages`, `POST /api/agents/{name}/conversations/{id}/save` |
 | MCP Services | `GET/POST /api/mcp-services`, `GET/PUT/DELETE /api/mcp-services/{name}`, `POST /api/mcp-services/{name}/test`, `GET /api/mcp-services/{name}/tools` |
 | Skills | `GET /api/skills`, `GET/DELETE /api/skills/{name}`, `GET /api/skills/{name}/files/{path}`, `POST /api/skills/upload` |
 | Model Services | `GET/POST /api/model-services`, `GET/PUT/DELETE /api/model-services/{name}`, `POST /api/model-services/test`, `GET /api/model-services/default-url/{provider}` |
