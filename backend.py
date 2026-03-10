@@ -370,9 +370,34 @@ async def chat_with_agent(name: str, req: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# 【流式输出 SSE 端点 - 谨慎修改】
+#
+# 此端点是流式对话的核心入口，将 AgentEngine.stream() 的 yield 事件
+# 转换为 SSE (Server-Sent Events) 格式发送到前端。
+#
+# 关键实现：
+# 1. 使用 StreamingResponse 返回 text/event-stream
+# 2. 禁用所有缓冲（Cache-Control, X-Accel-Buffering）
+# 3. 事件格式: data: {"type": "...", "content": "..."}\n\n
+#
+# ⚠️ 修改此端点可能影响：
+# - 流式输出的实时性
+# - 前端打字机效果
+# - SSE 连接稳定性
+#
+# 相关文件：
+# - src/agent_engine.py: stream() - 事件生成
+# - frontend/src/app/stream/agents/[name]/chat/route.ts - 前端代理
+# - frontend/src/components/AgentChat.tsx - 前端渲染
+# ============================================================================
 @app.post("/api/agents/{name}/chat/stream")
 async def chat_stream(name: str, req: ChatRequest):
-    """流式对话 - 支持返回 thinking、工具调用和最终回答"""
+    """流式对话 - 支持返回 thinking、工具调用和最终回答
+
+    【流式输出核心端点 - 谨慎修改】
+    使用 SSE (Server-Sent Events) 协议实现流式传输。
+    """
     if name not in manager.list_agents():
         raise HTTPException(status_code=404, detail="Agent不存在")
 

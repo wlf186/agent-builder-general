@@ -111,13 +111,196 @@ python tests/test_streaming_output.py
 
 ## Key Implementation Details
 
-### Streaming Response Flow
+---
 
-The streaming implementation in `src/agent_engine.py` uses a buffering strategy to detect tool calls while maintaining responsive streaming:
+> **⚠️ 重要备注：无论代码如何调整，都必须保障对话的流式输出效果正常**
+>
+> 流式输出是调试对话的核心体验，任何代码修改都**不能破坏**以下功能：
+> 1. 打字机效果的流畅性（逐字符流式显示）
+> 2. 思考过程（thinking）的实时更新
+> 3. 工具调用（tool_call/tool_result）的实时展示
+> 4. 技能加载状态（skill_loading/skill_loaded）的实时反馈
+> 5. 性能指标（metrics）的准确统计
 
-1. Buffer first 50 characters to detect if response is a tool call
-2. If no tool call detected, begin streaming immediately
-3. Events include types: `thinking`, `tool_call`, `tool_result`, `content`, `metrics`
+---
+
+### Streaming Response Flow（流式输出核心原理）
+
+流式输出实现采用**三层架构**：后端生成 → 前端代理 → 前端渲染
+
+#### 1. 后端流式生成 (`src/agent_engine.py`)
+
+**核心方法**: `AgentEngine.stream()` (第822行)
+
+**智能缓冲策略**:
+```python
+BUFFER_THRESHOLD = 50  # 缓冲前50个字符
+
+async for chunk in self.llm.astream(messages):
+    # 检测是否为工具调用 JSON
+    if stripped.startswith('{') or '"tool"' in buffer_content:
+        might_be_tool_call = True
+        buffering = True  # 继续缓冲，等待完整 JSON
+
+    # 超过阈值且非工具调用，开始流式输出
+    if len(buffer_content) > BUFFER_THRESHOLD and not might_be_tool_call:
+        started_streaming = True
+        for char in buffer_content:
+            yield {"type": "content", "content": char}  # 逐字符输出
+```
+
+**事件类型**:
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| `thinking` | 思考过程 | `{"type": "thinking", "content": "正在分析..."}` |
+| `content` | 最终回答（逐字符） | `{"type": "content", "content": "你"}` |
+| `tool_call` | 工具调用开始 | `{"type": "tool_call", "name": "evaluate", "args": {...}}` |
+| `tool_result` | 工具执行结果 | `{"type": "tool_result", "name": "evaluate", "result": "..."}` |
+| `skill_loading` | 技能加载中 | `{"type": "skill_loading", "skill_name": "pdf"}` |
+| `skill_loaded` | 技能加载完成 | `{"type": "skill_loaded", "skill_name": "pdf", "success": true}` |
+| `metrics` | 性能指标 | `{"type": "metrics", "first_token_latency": 500, ...}` |
+
+**后端 API 端点** (`backend.py` 第373-446行):
+```python
+@app.post("/api/agents/{name}/chat/stream")
+async def chat_stream(name: str, req: ChatRequest):
+    async def generate():
+        async for event in instance.chat_stream(req.message, req.history):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # 禁用 nginx 缓冲
+        }
+    )
+```
+
+#### 2. 前端流式代理 (`frontend/src/app/stream/agents/[name]/chat/route.ts`)
+
+**专用路径**: `/stream/agents/{name}/chat`（绕过 Next.js rewrites 代理）
+
+```typescript
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function POST(request: NextRequest, { params }) {
+  const res = await fetch(`${BACKEND_URL}/api/agents/${name}/chat/stream`, {...});
+
+  // 直接透传流式响应，不做任何缓冲
+  return new Response(res.body, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'X-Accel-Buffering': 'no',
+    },
+  });
+}
+```
+
+#### 3. 前端渲染 (`frontend/src/components/AgentChat.tsx`)
+
+**ReadableStream + flushSync 实现打字机效果**:
+```typescript
+const reader = res.body?.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  const chunk = decoder.decode(value, { stream: true });
+
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      const data = JSON.parse(line.slice(6));
+
+      if (data.type === 'content') {
+        streamingContentRef.current += data.content;
+        // 关键：使用 flushSync 强制同步渲染，确保打字机效果
+        flushSync(() => {
+          setMessages(prev => prev.map(msg =>
+            msg.id === assistantMsgId
+              ? { ...msg, content: streamingContentRef.current }
+              : msg
+          ));
+        });
+      }
+    }
+  }
+}
+```
+
+**打字机光标效果**:
+```tsx
+{isRunning && (
+  <span className="inline-block w-1.5 h-4 bg-emerald-400 ml-0.5 animate-pulse" />
+)}
+```
+
+#### 流式输出架构图
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 用户发送消息                                                          │
+└────────────────────────────────┬────────────────────────────────────┘
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Frontend (AgentChat.tsx)                                            │
+│ POST /stream/agents/{name}/chat                                     │
+│ Body: { message, history }                                          │
+└────────────────────────────────┬────────────────────────────────────┘
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Frontend API Route (route.ts)                                       │
+│ 透传到 http://localhost:20881/api/agents/{name}/chat/stream         │
+│ 关键 Headers: Cache-Control: no-cache, X-Accel-Buffering: no        │
+└────────────────────────────────┬────────────────────────────────────┘
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Backend (FastAPI StreamingResponse)                                 │
+│ media_type: text/event-stream                                       │
+└────────────────────────────────┬────────────────────────────────────┘
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ AgentEngine.stream()                                                │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ LLM astream() → 智能缓冲 (50字符) → 检测工具调用?            │   │
+│  │                     ↓                    ↓                   │   │
+│  │              工具调用: 完整缓冲    普通内容: 逐字符 yield     │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│ yield {"type": "thinking", ...}   → 思考过程                       │
+│ yield {"type": "content", ...}    → 打字机效果                     │
+│ yield {"type": "tool_call", ...}  → 工具调用                       │
+│ yield {"type": "tool_result", ...}→ 工具结果                       │
+│ yield {"type": "metrics", ...}    → 性能指标                       │
+└────────────────────────────────┬────────────────────────────────────┘
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Frontend SSE 解析 + flushSync 渲染                                  │
+│                                                                     │
+│ thinking  → 实时更新思考区域                                        │
+│ content   → flushSync 强制同步渲染 → 打字机效果                     │
+│ tool_call → 添加到工具调用列表                                      │
+│ tool_result → 更新工具结果                                          │
+│ metrics   → 显示性能指标                                            │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### 关键技术点
+
+| 技术 | 作用 | 代码位置 |
+|------|------|----------|
+| **SSE (Server-Sent Events)** | 流式传输协议 | `backend.py:438-446` |
+| **智能缓冲策略** | 平衡工具检测与流式响应 | `agent_engine.py:953-1005` |
+| **flushSync** | 强制 React 同步渲染 | `AgentChat.tsx:293-301` |
+| **专用流式路径** | 绕过代理缓冲 | `getStreamingUrl()` |
+| **禁用缓冲 Headers** | 防止中间层缓冲 | `X-Accel-Buffering: no` |
 
 See `best-practice.md` for detailed debugging guidance on streaming issues.
 

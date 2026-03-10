@@ -819,8 +819,40 @@ BEST: 编号"""
 
         return "抱歉，我无法处理这个请求。"
 
+    # ============================================================================
+    # 【流式输出核心代码 - 谨慎修改】
+    #
+    # 此方法实现了 Agent 的流式输出功能，包括：
+    # - 智能缓冲策略（50字符阈值）
+    # - 工具调用检测与处理
+    # - 多种事件类型（thinking/content/tool_call/tool_result/metrics）
+    #
+    # ⚠️ 修改此方法可能影响：
+    # 1. 打字机效果的流畅性
+    # 2. 工具调用的正确检测
+    # 3. 思考过程的实时更新
+    # 4. 前端渲染效果
+    #
+    # 相关文件：
+    # - backend.py: chat_stream() - SSE 端点
+    # - frontend/src/components/AgentChat.tsx - 前端渲染
+    # - frontend/src/app/stream/agents/[name]/chat/route.ts - 流式代理
+    # ============================================================================
     async def stream(self, user_input: str, history: List[Dict] = None):
-        """流式运行Agent - 支持返回 thinking、多轮工具调用和最终回答"""
+        """流式运行Agent - 支持返回 thinking、多轮工具调用和最终回答
+
+        【流式输出核心方法 - 谨慎修改】
+        此方法通过 yield 返回事件字典，由 backend.py 的 chat_stream() 端点
+        转换为 SSE 格式发送到前端。
+
+        事件类型：
+        - thinking: 思考过程（实时更新）
+        - content: 最终回答内容（逐字符流式输出）
+        - tool_call: 工具调用开始
+        - tool_result: 工具执行结果
+        - skill_loading/skill_loaded: 技能加载状态
+        - metrics: 性能指标
+        """
         # 构建系统提示
         system_prompt = self._get_system_prompt()
 
@@ -945,19 +977,28 @@ BEST: 编号"""
             tool_calls_info = []
 
             # ============================================================
-            # 2. 流式获取 LLM 响应 - 【重要：这里是真正的流式输出核心】
+            # 【流式输出核心 - 智能缓冲策略】
+            #
+            # 挑战：需要同时满足两个目标
+            # 1. 流式输出：让用户尽快看到响应，实现打字机效果
+            # 2. 工具检测：需要完整接收工具调用 JSON 才能正确解析
+            #
+            # 解决方案：智能缓冲策略
+            # - 缓冲前 50 个字符（BUFFER_THRESHOLD）
+            # - 如果检测到工具调用特征（{"tool": ...），继续缓冲直到完整 JSON
+            # - 如果超过阈值且无工具调用特征，立即开始流式输出
+            #
+            # ⚠️ 修改 BUFFER_THRESHOLD 或缓冲逻辑可能影响：
+            # - 首 token 时延（阈值太大会增加延迟）
+            # - 工具调用检测准确性（阈值太小可能截断工具 JSON）
             # ============================================================
             response_content = ""
             might_be_tool_call = False
             content_started = False
-            # 缓冲区：用于在确认是否是工具调用之前暂存内容
-            buffer_content = ""
-            # 当检测到可能的工具调用关键字时，进入缓冲模式
-            buffering = False
-            # 缓冲区阈值：超过此长度且没有检测到工具调用，就开始流式输出
-            BUFFER_THRESHOLD = 50
-            # 是否已经开始真正的流式输出
-            started_streaming = False
+            buffer_content = ""  # 缓冲区：暂存待确认的内容
+            buffering = False    # 是否处于缓冲模式
+            BUFFER_THRESHOLD = 50  # 【关键参数】缓冲阈值，平衡检测与响应性
+            started_streaming = False  # 是否已开始流式输出
 
             # 更新 thinking 为等待状态
             if iteration == 1:
@@ -989,15 +1030,17 @@ BEST: 编号"""
                         if '"tool"' in buffer_content and '{' in buffer_content:
                             might_be_tool_call = True
 
-                        # 如果缓冲区超过阈值且没有检测到工具调用，开始流式输出
+                        # 【流式输出核心】如果缓冲区超过阈值且没有检测到工具调用，开始流式输出
                         if len(buffer_content) > BUFFER_THRESHOLD and not might_be_tool_call:
                             started_streaming = True
-                            # 输出缓冲的内容
+                            # 【关键】逐字符输出缓冲内容，实现打字机效果
+                            # 前端 AgentChat.tsx 使用 flushSync 确保每次 yield 都能立即渲染
                             for char in buffer_content:
                                 yield {"type": "content", "content": char}
                             buffer_content = ""
                     elif started_streaming:
-                        # 已经开始流式输出，直接输出新内容
+                        # 【流式输出核心】已经开始流式输出，直接输出新内容
+                        # 这里的 chunk.content 是 LLM 返回的增量内容，直接透传给前端
                         yield {"type": "content", "content": chunk.content}
                     elif buffering and might_be_tool_call:
                         # 检测到工具调用，继续缓冲

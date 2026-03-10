@@ -1,7 +1,34 @@
+/**
+ * ============================================================================
+ * 【流式输出前端渲染组件 - 谨慎修改】
+ *
+ * 此组件是调试对话的核心 UI，负责：
+ * 1. 发送流式请求到 /stream/agents/{name}/chat
+ * 2. 解析 SSE (Server-Sent Events) 数据
+ * 3. 实时渲染思考过程、工具调用、最终回答
+ * 4. 实现打字机效果
+ *
+ * 关键技术：
+ * 1. ReadableStream API - 逐块读取 SSE 数据
+ * 2. flushSync - 强制 React 同步渲染，确保打字机效果
+ * 3. useRef 存储流式内容 - 避免频繁触发重渲染
+ *
+ * ⚠️ 修改此文件可能影响：
+ * - 打字机效果的流畅性
+ * - 思考过程的实时更新
+ * - 工具调用的正确展示
+ * - 性能指标的显示
+ *
+ * 相关文件：
+ * - backend.py: chat_stream() - 后端 SSE 端点
+ * - src/agent_engine.py: stream() - 事件生成
+ * - frontend/src/app/stream/agents/[name]/chat/route.ts - 流式代理
+ * ============================================================================
+ */
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { flushSync } from 'react-dom';
+import { flushSync } from 'react-dom';  // 【关键】flushSync 用于强制同步渲染
 import { useLocale } from '@/lib/LocaleContext';
 import { ChevronDown, ChevronRight, Wrench, Lightbulb, Loader2, Clock, Zap, Hash } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -9,7 +36,8 @@ import remarkGfm from 'remark-gfm';
 
 const API_BASE = '/api';
 
-// 流式请求使用专用路径，绕过 rewrites 代理
+// 【流式输出关键】流式请求使用专用路径，绕过 rewrites 代理
+// 这样可以避免 Next.js 代理缓冲导致的流式输出失效
 const getStreamingUrl = () => {
   return '/stream';
 };
@@ -193,6 +221,8 @@ export function AgentChat({ agentName, shortTermMemory = 5 }: AgentChatProps) {
         throw new Error(`HTTP error! status: ${res.status}`);
       }
 
+      // 【流式输出核心】使用 ReadableStream API 读取 SSE 数据
+      // 这是实现打字机效果的关键：逐块读取，而不是等待完整响应
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
 
@@ -206,6 +236,7 @@ export function AgentChat({ agentName, shortTermMemory = 5 }: AgentChatProps) {
       let chunkCount = 0;
       let totalBytes = 0;
 
+      // 【流式输出核心】循环读取数据块，直到流结束
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
@@ -216,13 +247,16 @@ export function AgentChat({ agentName, shortTermMemory = 5 }: AgentChatProps) {
         chunkCount++;
         totalBytes += value?.length || 0;
 
+        // 【关键】使用 stream: true 选项，确保跨 chunk 的 UTF-8 字符能正确解码
         const chunk = decoder.decode(value, { stream: true });
         addChunkLog(chunkCount, totalBytes, chunk);
 
         buffer += chunk;
         const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        buffer = lines.pop() || '';  // 保留最后一个不完整的行
 
+        // 【流式输出核心】解析 SSE 数据
+        // SSE 格式: data: {"type": "...", "content": "..."}\n
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
@@ -288,7 +322,16 @@ export function AgentChat({ agentName, shortTermMemory = 5 }: AgentChatProps) {
                   )
                 );
               } else if (data.type === 'content') {
-                // 内容输出 - 使用 flushSync 强制同步渲染，确保打字机效果
+                // ============================================================
+                // 【流式输出核心 - 打字机效果】
+                //
+                // 这里的实现非常关键：
+                // 1. 使用 useRef (streamingContentRef) 累积内容，避免频繁触发重渲染
+                // 2. 使用 flushSync 强制 React 同步渲染，确保每次字符都能立即显示
+                //
+                // ⚠️ 不要修改此处的 flushSync，否则打字机效果会失效！
+                // React 默认的批处理会延迟渲染，导致字符不是逐个出现
+                // ============================================================
                 streamingContentRef.current += data.content;
                 flushSync(() => {
                   setMessages((prev) =>
