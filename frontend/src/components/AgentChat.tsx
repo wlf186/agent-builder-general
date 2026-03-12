@@ -147,6 +147,13 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   // T017: Skill 执行状态
   const streamingSkillStatesRef = useRef<SkillExecutionState[]>([]);
 
+  // 【修复】用于在渲染完成后安全地调用 onConversationChange
+  // 避免 "Cannot update a component while rendering a different component" 错误
+  const pendingConversationUpdateRef = useRef<{
+    conversationId: string | null | undefined;
+    messages: ChatMessage[];
+  } | null>(null);
+
   // 自动滚动到底部
   const scrollToBottom = useCallback(() => {
     if (messagesContainerRef.current) {
@@ -166,6 +173,16 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
       setMessages(initialMessages);
     }
   }, [initialMessages]);
+
+  // 【修复】在渲染完成后安全地调用 onConversationChange
+  // 这避免了在 setMessages 回调中直接调用导致的渲染期间 setState 错误
+  useEffect(() => {
+    const pendingUpdate = pendingConversationUpdateRef.current;
+    if (pendingUpdate && onConversationChange) {
+      onConversationChange(pendingUpdate.conversationId, pendingUpdate.messages);
+      pendingConversationUpdateRef.current = null; // 清除待处理的更新
+    }
+  }, [messages, onConversationChange]);
 
   // REQ-1.3: 监听 agentName 变化，重置内部状态
   // 使用 useRef 跟踪上一个 agentName 来检测变化
@@ -721,13 +738,16 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
       setIsRunning(false);
       abortControllerRef.current = null;
 
-      // 保存会话消息到后端
-      // 注意：这里使用 setMessages 获取最新的消息列表
-      // 因为 messages 在闭包中可能不是最新的
+      // 【修复】保存会话消息到后端
+      // 使用 ref 存储待处理的更新，然后在 useEffect 中调用 onConversationChange
+      // 这避免了在 setMessages 回调中直接调用导致的渲染期间 setState 错误
       setMessages((currentMessages) => {
-        if (onConversationChange && currentMessages.length > 0) {
-          // 使用 activeConversationId（可能在本次发送中刚创建的）
-          onConversationChange(activeConversationId, currentMessages);
+        if (currentMessages.length > 0) {
+          // 存储待处理的更新，useEffect 会在渲染完成后处理
+          pendingConversationUpdateRef.current = {
+            conversationId: activeConversationId,
+            messages: currentMessages
+          };
         }
         return currentMessages;
       });

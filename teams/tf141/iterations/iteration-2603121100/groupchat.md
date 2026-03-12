@@ -41,7 +41,18 @@
 ## 11:55 - Lead输出项目简报
 - 本次迭代成功修复三个Bug
 - 所有验收标准均已满足
-- 代码已准备好提交
+- 代码已提交
+
+## 12:05 - 发现新问题
+用户反馈两个问题：
+1. skill-test-pdf请求报错"Error: Skill 'AB-pdf' is not enabled. Available skills: AB-PDF Processing Guide"
+   - 根因：注册表中skill名称是"AB-PDF Processing Guide"，但LLM调用时使用"AB-pdf"
+2. 页面Console Error: setState during render
+   - 根因：AgentChat组件在渲染期间调用setState
+
+## 12:10 - Lead派发修复任务
+- 派发任务给BE：修复skill名称模糊匹配
+- 派发任务给FE：修复setState渲染期间调用问题
 
 ---
 

@@ -49,8 +49,9 @@ class SkillTool:
         匹配策略（按优先级）：
         1. 精确匹配（在enabled_skills列表中）
         2. 规范化后精确匹配（大小写不敏感）
-        3. 前缀匹配
-        4. 包含匹配
+        3. 核心关键词匹配（如 "AB-pdf" 匹配 "AB-PDF Processing Guide"）
+        4. 前缀匹配
+        5. 包含匹配
 
         Args:
             query_name: 查询的Skill名称
@@ -74,7 +75,25 @@ class SkillTool:
             if normalized_query == normalized_skill:
                 return skill_name
 
-        # 3. 模糊匹配（前缀/包含）
+        # 3. 核心关键词匹配
+        # 提取查询名称的核心关键词（如 "AB-pdf" -> ["ab", "pdf"]）
+        query_keywords = self._extract_core_keywords(normalized_query)
+
+        if query_keywords:
+            for skill_name in self.enabled_skills:
+                normalized_skill = self._normalize_name(skill_name)
+                skill_keywords = self._extract_core_keywords(normalized_skill)
+
+                # 检查核心关键词是否全部匹配
+                if query_keywords and skill_keywords:
+                    # 如果查询关键词是技能关键词的子集，且至少包含一个有意义的关键词
+                    if set(query_keywords).issubset(set(skill_keywords)):
+                        # 确保有实质性的关键词匹配（不只是单个字母）
+                        meaningful_matches = [kw for kw in query_keywords if len(kw) > 1]
+                        if meaningful_matches:
+                            return skill_name
+
+        # 4. 模糊匹配（前缀/包含）
         best_match = None
         best_score = 0
 
@@ -96,6 +115,32 @@ class SkillTool:
                     best_match = skill_name
 
         return best_match
+
+    def _extract_core_keywords(self, normalized_name: str) -> List[str]:
+        """
+        从规范化名称中提取核心关键词
+
+        例如：
+        - "ab-pdf" -> ["ab", "pdf"]
+        - "ab-pdf-processing-guide" -> ["ab", "pdf", "processing", "guide"]
+        - "ab-docx" -> ["ab", "docx"]
+
+        Args:
+            normalized_name: 规范化后的名称（小写连字符格式）
+
+        Returns:
+            关键词列表
+        """
+        if not normalized_name:
+            return []
+
+        # 按连字符分割
+        parts = normalized_name.split('-')
+
+        # 过滤掉空字符串和太短的无意义词
+        keywords = [part.strip() for part in parts if part.strip() and len(part.strip()) > 0]
+
+        return keywords
 
     def _normalize_name(self, name: str) -> str:
         """
