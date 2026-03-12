@@ -53,10 +53,44 @@ class SkillRegistry:
         except Exception as e:
             print(f"保存Skills索引失败: {e}")
 
+    def _normalize_skill_name(self, name: str) -> str:
+        """
+        规范化Skill名称为小写连字符格式
+
+        规则:
+        1. 统一转为小写
+        2. 空格替换为连字符
+        3. 多个连续连字符合并为一个
+        4. 移除首尾连字符
+
+        Args:
+            name: 原始名称
+
+        Returns:
+            规范化后的名称
+        """
+        if not name:
+            return name
+
+        # 转小写
+        normalized = name.lower()
+        # 空格替换为连字符
+        normalized = re.sub(r'\s+', '-', normalized)
+        # 多个连字符合并
+        normalized = re.sub(r'-+', '-', normalized)
+        # 移除首尾连字符
+        normalized = normalized.strip('-')
+
+        return normalized
+
     def _parse_skill_md(self, skill_path: Path) -> Tuple[str, str, Dict[str, Any]]:
         """
         解析SKILL.md文件，提取元数据
         返回: (name, description, metadata)
+
+        名称优先级：
+        1. frontmatter中的name字段（规范化为小写连字符格式）
+        2. 标题中的第一个单词（作为fallback）
         """
         skill_md_path = skill_path / "SKILL.md"
         if not skill_md_path.exists():
@@ -66,25 +100,7 @@ class SkillRegistry:
             with open(skill_md_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            # 提取标题（第一个 # 标题）
-            name = ""
-            title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
-            if title_match:
-                name = title_match.group(1).strip()
-
-            # 提取描述（标题后的第一段非空内容）
-            description = ""
-            lines = content.split('\n')
-            found_title = False
-            for line in lines:
-                if line.startswith('# ') and not found_title:
-                    found_title = True
-                    continue
-                if found_title and line.strip() and not line.startswith('#'):
-                    description = line.strip()
-                    break
-
-            # 提取元数据（从frontmatter或特殊标记）
+            # 提取元数据（从frontmatter）
             metadata = {}
 
             # 尝试解析 YAML frontmatter
@@ -97,13 +113,35 @@ class SkillRegistry:
                             key, value = line.split(':', 1)
                             metadata[key.strip()] = value.strip().strip('"').strip("'")
 
-            # 如果没有从标题获取到name，从frontmatter获取
-            if not name and 'name' in metadata:
-                name = metadata['name']
+            # 优先使用frontmatter中的name（规范化）
+            name = ""
+            if 'name' in metadata:
+                name = self._normalize_skill_name(metadata['name'])
 
-            # 如果没有从内容获取到description，从frontmatter获取
-            if not description and 'description' in metadata:
+            # 如果没有frontmatter的name，从标题提取第一个单词作为fallback
+            if not name:
+                title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+                if title_match:
+                    title = title_match.group(1).strip()
+                    # 只取第一个单词（如 "AB-DOCX creation..." -> "AB-DOCX"）
+                    first_word = title.split()[0] if title.split() else title
+                    name = self._normalize_skill_name(first_word)
+
+            # 提取描述（优先从frontmatter，其次从内容）
+            description = ""
+            if 'description' in metadata:
                 description = metadata['description']
+            else:
+                # 从内容中提取描述（标题后的第一段非空内容）
+                lines = content.split('\n')
+                found_title = False
+                for line in lines:
+                    if line.startswith('# ') and not found_title:
+                        found_title = True
+                        continue
+                    if found_title and line.strip() and not line.startswith('#'):
+                        description = line.strip()
+                        break
 
             # 从内容中提取标签
             tags_match = re.search(r'标签[：:]\s*(.+)$', content, re.MULTILINE)
@@ -207,6 +245,77 @@ class SkillRegistry:
     def get_skill(self, name: str) -> Optional[SkillConfig]:
         """获取Skill配置"""
         return self.skills.get(name)
+
+    def fuzzy_match_skill(self, query_name: str) -> Optional[str]:
+        """
+        模糊匹配Skill名称
+
+        匹配策略（按优先级）：
+        1. 精确匹配
+        2. 规范化后精确匹配（大小写不敏感）
+        3. 前缀匹配（如"AB-DOCX"匹配"ab-docx"）
+        4. 包含匹配（如"docx"匹配"ab-docx"）
+
+        Args:
+            query_name: 查询的Skill名称
+
+        Returns:
+            匹配到的规范化Skill名称，未匹配返回None
+        """
+        if not query_name:
+            return None
+
+        # 1. 精确匹配
+        if query_name in self.skills:
+            return query_name
+
+        # 2. 规范化后精确匹配
+        normalized_query = self._normalize_skill_name(query_name)
+        if normalized_query in self.skills:
+            return normalized_query
+
+        # 3. 遍历所有skill进行模糊匹配
+        best_match = None
+        best_score = 0
+
+        for skill_name in self.skills.keys():
+            normalized_skill = self._normalize_skill_name(skill_name)
+
+            # 规范化后精确匹配
+            if normalized_query == normalized_skill:
+                return skill_name
+
+            # 前缀匹配（查询是skill的前缀，或skill是查询的前缀）
+            if normalized_skill.startswith(normalized_query) or normalized_query.startswith(normalized_skill):
+                score = max(len(normalized_query), len(normalized_skill))
+                if score > best_score:
+                    best_score = score
+                    best_match = skill_name
+
+            # 包含匹配
+            elif normalized_query in normalized_skill or normalized_skill in normalized_query:
+                score = min(len(normalized_query), len(normalized_skill))
+                if score > best_score:
+                    best_score = score
+                    best_match = skill_name
+
+        return best_match
+
+    def normalize_skill_name(self, name: str) -> str:
+        """
+        公共方法：规范化Skill名称
+
+        Args:
+            name: 原始名称
+
+        Returns:
+            规范化后的名称
+        """
+        return self._normalize_skill_name(name)
+
+    def get_available_skill_names(self) -> List[str]:
+        """获取所有可用的Skill名称列表"""
+        return list(self.skills.keys())
 
     def list_skills(self) -> List[SkillConfig]:
         """列出所有Skills"""

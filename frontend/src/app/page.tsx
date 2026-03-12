@@ -473,6 +473,10 @@ export default function Home() {
 
   const openAgentConfig = async (name: string) => {
     try {
+      // REQ-1.1: 切换智能体时重置会话状态，避免会话串台
+      setCurrentConversationId(null);
+      setCurrentConversationMessages([]);
+
       const res = await fetch(`${API_BASE}/agents/${name}`);
       const config = await res.json();
       setSelectedAgent(name);

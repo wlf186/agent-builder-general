@@ -4,7 +4,7 @@
  */
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, Search, Clock } from "lucide-react";
 import { useLocale } from "@/lib/LocaleContext";
@@ -34,17 +34,32 @@ export function ConversationDrawer({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // REQ-1.2: 跟踪上一个 agentName，在变化时先清空会话列表
+  const prevAgentNameRef = useRef<string | null>(null);
+
   // 加载会话列表
   useEffect(() => {
     if (open && agentName) {
+      // REQ-1.2: agentName 变化时先清空，避免显示旧数据
+      if (prevAgentNameRef.current !== agentName) {
+        setConversations([]);
+        prevAgentNameRef.current = agentName;
+      }
       loadConversations();
     }
   }, [open, agentName]);
 
+  // REQ-3.2: 加载会话列表时禁用浏览器缓存
   const loadConversations = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/agents/${agentName}/conversations`);
+      const res = await fetch(`/api/agents/${agentName}/conversations`, {
+        cache: 'no-store',  // 禁用缓存，确保每次都获取最新数据
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+      });
       const data = await res.json();
       setConversations(data.conversations || []);
     } catch (error) {

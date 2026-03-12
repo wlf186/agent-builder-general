@@ -42,6 +42,94 @@ class SkillTool:
         self.agent_name = agent_name
         self._loaded_skills: Dict[str, str] = {}  # 缓存已加载的skill内容
 
+    def _match_skill_name(self, query_name: str) -> Optional[str]:
+        """
+        匹配Skill名称，支持模糊匹配
+
+        匹配策略（按优先级）：
+        1. 精确匹配（在enabled_skills列表中）
+        2. 规范化后精确匹配（大小写不敏感）
+        3. 前缀匹配
+        4. 包含匹配
+
+        Args:
+            query_name: 查询的Skill名称
+
+        Returns:
+            匹配到的实际Skill名称，未匹配返回None
+        """
+        if not query_name:
+            return None
+
+        # 1. 精确匹配
+        if query_name in self.enabled_skills:
+            return query_name
+
+        # 规范化查询名称
+        normalized_query = self._normalize_name(query_name)
+
+        # 2. 规范化后精确匹配
+        for skill_name in self.enabled_skills:
+            normalized_skill = self._normalize_name(skill_name)
+            if normalized_query == normalized_skill:
+                return skill_name
+
+        # 3. 模糊匹配（前缀/包含）
+        best_match = None
+        best_score = 0
+
+        for skill_name in self.enabled_skills:
+            normalized_skill = self._normalize_name(skill_name)
+
+            # 前缀匹配
+            if normalized_skill.startswith(normalized_query) or normalized_query.startswith(normalized_skill):
+                score = max(len(normalized_query), len(normalized_skill))
+                if score > best_score:
+                    best_score = score
+                    best_match = skill_name
+
+            # 包含匹配
+            elif normalized_query in normalized_skill or normalized_skill in normalized_query:
+                score = min(len(normalized_query), len(normalized_skill))
+                if score > best_score:
+                    best_score = score
+                    best_match = skill_name
+
+        return best_match
+
+    def _normalize_name(self, name: str) -> str:
+        """
+        规范化名称为小写连字符格式
+        """
+        if not name:
+            return name
+        import re
+        normalized = name.lower()
+        normalized = re.sub(r'\s+', '-', normalized)
+        normalized = re.sub(r'-+', '-', normalized)
+        normalized = normalized.strip('-')
+        return normalized
+
+    def _format_available_skills(self) -> str:
+        """
+        格式化可用的Skill列表，用于错误提示
+
+        Returns:
+            格式化的Skill列表字符串
+        """
+        if not self.enabled_skills:
+            return "No skills are currently enabled for this agent."
+
+        lines = ["Available skills for this agent:"]
+        for skill_name in self.enabled_skills:
+            skill = self.skill_registry.get_skill(skill_name)
+            if skill:
+                desc = skill.description[:80] + "..." if len(skill.description) > 80 else skill.description
+                lines.append(f"  - {skill_name}: {desc}")
+            else:
+                lines.append(f"  - {skill_name}")
+        return "\n".join(lines)
+
     def get_tool_definition(self) -> Dict[str, Any]:
         """
         返回工具定义，description中包含可用skills列表
@@ -201,10 +289,14 @@ Example call format:
             available = ", ".join(self.enabled_skills)
             return f"Error: No skill name provided. Available skills: {available}"
 
-        # 检查是否在允许的技能列表中
-        if skill_name not in self.enabled_skills:
-            available = ", ".join(self.enabled_skills)
-            return f"Error: Skill '{skill_name}' is not available. Available skills: {available}"
+        # 尝试匹配skill名称（支持模糊匹配）
+        actual_skill_name = self._match_skill_name(skill_name)
+        if not actual_skill_name:
+            available_skills = self._format_available_skills()
+            return f"Error: Skill '{skill_name}' is not available.\n\n{available_skills}"
+
+        # 使用匹配后的名称
+        skill_name = actual_skill_name
 
         # 检查缓存
         if skill_name in self._loaded_skills:
@@ -265,9 +357,14 @@ Example call format:
         if not self.execution_engine:
             return "Error: Execution engine not available"
 
-        if skill_name not in self.enabled_skills:
-            available = ", ".join(self.enabled_skills)
-            return f"Error: Skill '{skill_name}' is not enabled. Available skills: {available}"
+        # 尝试匹配skill名称（支持模糊匹配）
+        actual_skill_name = self._match_skill_name(skill_name)
+        if not actual_skill_name:
+            available_skills = self._format_available_skills()
+            return f"Error: Skill '{skill_name}' is not enabled.\n\n{available_skills}"
+
+        # 使用匹配后的名称
+        skill_name = actual_skill_name
 
         # 获取Skill配置
         skill = self.skill_registry.get_skill(skill_name)
@@ -365,15 +462,18 @@ Example call format:
             name = skill['name']
             desc = skill['description']
 
+            # 规范化名称用于比较（支持大小写不敏感匹配）
+            normalized_name = self._normalize_name(name)
+
             # 根据 Skill 名称提供操作建议
-            if name == "AB-pdf":
+            if normalized_name == "ab-pdf":
                 actions = """
     可用操作:
       - extract_text: 提取 PDF 文本内容
       - extract_forms: 提取表单字段信息
       - fill_form: 填充表单字段
       - convert_images: 转换为图片"""
-            elif name == "AB-docx":
+            elif normalized_name == "ab-docx":
                 actions = """
     可用操作:
       - extract_text: 提取文档文本

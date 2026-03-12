@@ -167,6 +167,21 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
     }
   }, [initialMessages]);
 
+  // REQ-1.3: 监听 agentName 变化，重置内部状态
+  // 使用 useRef 跟踪上一个 agentName 来检测变化
+  const prevAgentNameRef = useRef(agentName);
+  useEffect(() => {
+    if (prevAgentNameRef.current !== agentName) {
+      // agentName 发生变化，重置所有状态
+      setMessages([]);
+      setFileContext({ file_ids: [], file_infos: [] });
+      setInputValue('');
+      setHasError(false);
+      setPendingFiles([]);
+      prevAgentNameRef.current = agentName;
+    }
+  }, [agentName]);
+
   const downloadLogs = async () => {
     const clientLog = locale === "zh"
       ? `=== 客户端日志 ===\n${localLogs.join('\n\n')}`
