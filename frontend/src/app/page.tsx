@@ -45,6 +45,42 @@ import { useLocale } from "@/lib/LocaleContext";
 
 const API_BASE = "/api";
 
+// 后端消息格式转换为前端 ChatMessage 格式
+interface BackendMessage {
+  id: string;
+  role: string;
+  content: string;
+  thinking?: string;
+  tool_calls?: Array<{
+    name: string;
+    args: Record<string, any>;
+    result?: string;
+  }>;
+  metrics?: {
+    first_token_latency: number;
+    total_tokens: number;
+    total_duration: number;
+  };
+}
+
+function convertBackendMessages(messages: BackendMessage[]): any[] {
+  return messages.map(msg => ({
+    id: msg.id || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    role: msg.role as 'user' | 'assistant',
+    content: msg.content,
+    thinking: msg.thinking || '',
+    toolCalls: msg.tool_calls?.map(tc => ({
+      name: tc.name,
+      args: tc.args || {},
+      result: tc.result
+    })) || [],
+    isThinkingExpanded: false,
+    metrics: msg.metrics,
+    loadedSkills: []
+  }));
+}
+
+
 interface Agent {
   name: string;
   description: string;
@@ -1590,28 +1626,106 @@ export default function Home() {
                 agentName={selectedAgent || ""}
                 shortTermMemory={shortTermMemory}
                 conversationId={currentConversationId}
-                onConversationChange={(id, messages) => {
-                  setCurrentConversationId(id);
+                initialMessages={currentConversationMessages}
+                onCreateConversation={async () => {
+                  try {
+                    // 创建新会话记录
+                    const res = await fetch(`${API_BASE}/agents/${selectedAgent}/conversations`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ title: locale === "zh" ? "新对话" : "New Chat" })
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      setCurrentConversationId(data.id);
+                      return data.id;
+                    }
+                  } catch (error) {
+                    console.error("Failed to create conversation:", error);
+                  }
+                  return null;
+                }}
+                onConversationChange={async (id, messages) => {
+                  // 更新本地状态
+                  if (id) {
+                    setCurrentConversationId(id);
+                  }
                   setCurrentConversationMessages(messages);
+
+                  // 保存到后端
+                  if (id && messages.length > 0) {
+                    try {
+                      // 转换消息格式为后端格式
+                      const backendMessages = messages.map(msg => ({
+                        id: msg.id,
+                        role: msg.role,
+                        content: msg.content,
+                        thinking: msg.thinking || undefined,
+                        tool_calls: msg.toolCalls || undefined,
+                        metrics: msg.metrics || undefined
+                      }));
+
+                      await fetch(`${API_BASE}/agents/${selectedAgent}/conversations/${id}/save`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ messages: backendMessages })
+                      });
+                    } catch (error) {
+                      console.error("Failed to save conversation:", error);
+                    }
+                  }
                 }}
               />
             </div>
           </Card>
         </motion.div>
 
-        {/* 巻加历史会话抽屉 */}
+        {/* 添加历史会话抽屉 */}
         <ConversationDrawer
           open={conversationDrawerOpen}
           onClose={() => setConversationDrawerOpen(false)}
           agentName={selectedAgent || ""}
           currentConversationId={currentConversationId}
-          onSelectConversation={(id) => {
-            setCurrentConversationId(id);
+          onSelectConversation={async (id) => {
+            if (!selectedAgent) return;
+            try {
+              // 从后端加载会话详情（含消息）
+              const res = await fetch(`${API_BASE}/agents/${selectedAgent}/conversations/${id}`);
+              if (res.ok) {
+                const data = await res.json();
+                // 转换消息格式并设置
+                const convertedMessages = convertBackendMessages(data.messages || []);
+                setCurrentConversationId(id);
+                setCurrentConversationMessages(convertedMessages);
+              }
+            } catch (error) {
+              console.error("Failed to load conversation:", error);
+            }
             setConversationDrawerOpen(false);
           }}
-          onNewConversation={() => {
-            setCurrentConversationId(null);
-            setCurrentConversationMessages([]);
+          onNewConversation={async () => {
+            if (!selectedAgent) return;
+            try {
+              // 创建新会话记录
+              const res = await fetch(`${API_BASE}/agents/${selectedAgent}/conversations`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: locale === "zh" ? "新对话" : "New Chat" })
+              });
+              if (res.ok) {
+                const data = await res.json();
+                setCurrentConversationId(data.id);
+                setCurrentConversationMessages([]);
+              } else {
+                // 降级处理：保持原行为
+                setCurrentConversationId(null);
+                setCurrentConversationMessages([]);
+              }
+            } catch (error) {
+              console.error("Failed to create conversation:", error);
+              setCurrentConversationId(null);
+              setCurrentConversationMessages([]);
+            }
             setConversationDrawerOpen(false);
           }}
         />

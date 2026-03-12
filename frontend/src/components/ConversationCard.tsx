@@ -40,6 +40,7 @@ export function ConversationCard({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const formatDate = (dateStr: string) => {
+    if (!dateStr) return "";
     const date = new Date(dateStr);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();

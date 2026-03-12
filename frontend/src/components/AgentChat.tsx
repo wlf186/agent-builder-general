@@ -30,9 +30,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { flushSync } from 'react-dom';  // 【关键】flushSync 用于强制同步渲染
 import { useLocale } from '@/lib/LocaleContext';
-import { ChevronDown, ChevronRight, Wrench, Lightbulb, Loader2, Clock, Zap, Hash } from 'lucide-react';
+import { ChevronDown, ChevronRight, Wrench, Lightbulb, Loader2, Clock, Zap, Hash, Paperclip, FileText, FileSpreadsheet, Image, File, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { PendingFile, FileAttachment, DEFAULT_FILE_CONFIG, formatFileSize, FileUploadConfig, FileContext, UploadedFile } from '@/types';
+import { FileUploader, UploadButton } from '@/components/FileUploader';
+import { uploadFile } from '@/lib/fileApi';
 
 const API_BASE = '/api';
 
@@ -68,6 +71,16 @@ interface ToolCall {
   result?: string;
 }
 
+/**
+ * Skill 执行状态 (T017)
+ */
+interface SkillExecutionState {
+  skillName: string;
+  status: 'loading' | 'executing' | 'completed' | 'failed';
+  message?: string;
+  error?: string;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -80,6 +93,12 @@ interface ChatMessage {
   metrics?: PerformanceMetrics;
   // 已加载的技能
   loadedSkills?: string[];
+  // 文件附件
+  attachments?: FileAttachment[];
+  // Skill 执行状态 (T017)
+  skillStates?: SkillExecutionState[];
+  // 当前正在加载的技能
+  loadingSkill?: string;
 }
 
 interface PerformanceMetrics {
@@ -92,23 +111,41 @@ interface AgentChatProps {
   agentName: string;
   shortTermMemory?: number;
   conversationId?: string | null;
-  onConversationChange?: (id: string, messages: ChatMessage[]) => void;
+  initialMessages?: ChatMessage[];  // 新增：用于加载历史会话消息
+  onConversationChange?: (id: string | null | undefined, messages: ChatMessage[]) => void;
+  onCreateConversation?: () => Promise<string | null | undefined>;  // 新增：创建会话的回调
 }
 
-export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onConversationChange }: AgentChatProps) {
+export function AgentChat({ agentName, shortTermMemory = 5, conversationId, initialMessages, onConversationChange, onCreateConversation }: AgentChatProps) {
   const { locale, t } = useLocale();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [hasError, setHasError] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);  // 待发送的文件
+
+  // ========== file_context 管理 (T016) ==========
+  // 文件上下文：维护已上传文件的 ID 和信息
+  const [fileContext, setFileContext] = useState<FileContext>({
+    file_ids: [],
+    file_infos: []
+  });
+  // 上传状态
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadingFileName, setUploadingFileName] = useState<string>('');
+
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);  // 文件输入引用
 
   // 使用 ref 存储流式内容，避免频繁触发重渲染
   const streamingContentRef = useRef<string>("");
   const streamingThinkingRef = useRef<string>("");
   const streamingToolCallsRef = useRef<ToolCall[]>([]);
   const streamingLoadedSkillsRef = useRef<string[]>([]);
+  // T017: Skill 执行状态
+  const streamingSkillStatesRef = useRef<SkillExecutionState[]>([]);
 
   // 自动滚动到底部
   const scrollToBottom = useCallback(() => {
@@ -121,6 +158,14 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  // 【新增】监听 initialMessages 变化，用于加载历史会话
+  useEffect(() => {
+    // 只有当 initialMessages 不是 undefined 时才更新（允许空数组）
+    if (initialMessages !== undefined) {
+      setMessages(initialMessages);
+    }
+  }, [initialMessages]);
 
   const downloadLogs = async () => {
     const clientLog = locale === "zh"
@@ -153,15 +198,118 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
     URL.revokeObjectURL(url);
   };
 
+  // ========== 文件上传函数 (T016) ==========
+  /**
+   * 上传待发送的文件到后端
+   * @returns 上传成功的文件信息列表
+   */
+  const uploadPendingFiles = useCallback(async (files: PendingFile[]): Promise<FileAttachment[]> => {
+    if (files.length === 0) return [];
+
+    const uploadedFiles: FileAttachment[] = [];
+    const failedFiles: string[] = [];
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    addLog('INFO', locale === "zh" ? `开始上传 ${files.length} 个文件` : `Starting to upload ${files.length} files`);
+
+    for (let i = 0; i < files.length; i++) {
+      const pf = files[i];
+      setUploadingFileName(pf.name);
+      setUploadProgress(Math.round((i / files.length) * 100));
+
+      try {
+        const uploadedFile = await uploadFile(agentName, pf.file);
+        uploadedFiles.push({
+          id: uploadedFile.id,
+          name: uploadedFile.filename,
+          size: uploadedFile.size,
+          type: uploadedFile.mimeType
+        });
+        addLog('INFO', locale === "zh" ? `文件上传成功: ${pf.name}` : `File uploaded: ${pf.name}`, { file_id: uploadedFile.id });
+      } catch (e) {
+        failedFiles.push(pf.name);
+        console.error('文件上传失败:', pf.name, e);
+        addLog('ERROR', locale === "zh" ? `文件上传失败: ${pf.name}` : `File upload failed: ${pf.name}`, { error: String(e) });
+      }
+    }
+
+    setUploadProgress(100);
+    setIsUploading(false);
+    setUploadingFileName('');
+
+    addLog('INFO', locale === "zh" ? `文件上传完成，成功 ${uploadedFiles.length} 个，失败 ${failedFiles.length} 个` : `File upload completed, ${uploadedFiles.length} success, ${failedFiles.length} failed`);
+
+    return uploadedFiles;
+  }, [agentName, locale]);
+
+  /**
+   * 清除文件上下文
+   */
+  const clearFileContext = useCallback(() => {
+    setFileContext({
+      file_ids: [],
+      file_infos: []
+    });
+    setPendingFiles([]);
+  }, []);
+
+  /**
+   * 移除单个已上传的文件
+   */
+  const removeUploadedFile = useCallback((fileId: string) => {
+    setFileContext(prev => ({
+      file_ids: prev.file_ids.filter(id => id !== fileId),
+      file_infos: prev.file_infos.filter(info => info.id !== fileId)
+    }));
+  }, []);
+
   const handleSend = useCallback(async () => {
-    if (!inputValue.trim() || isRunning) return;
+    // 修改条件：允许只有文件没有文本，或者有文本
+    if ((!inputValue.trim() && pendingFiles.length === 0 && fileContext.file_ids.length === 0) || isRunning) return;
 
     const userContent = inputValue.trim();
+    const currentPendingFiles = [...pendingFiles];  // 保存当前待发送文件
     setInputValue('');
+    setPendingFiles([]);  // 清空待发送文件
     setHasError(false);
+
+    // 如果没有 conversationId，先创建会话
+    let activeConversationId = conversationId;
+    if (!activeConversationId && onCreateConversation) {
+      try {
+        const newId = await onCreateConversation();
+        if (newId) {
+          activeConversationId = newId;
+        }
+      } catch (error) {
+        console.error('Failed to create conversation:', error);
+      }
+    }
 
     const streamingUrl = getStreamingUrl();
     const requestUrl = `${streamingUrl}/agents/${agentName}/chat`;
+
+    // ========== T016: 使用 file_context 管理文件 ==========
+    // 1. 先上传新的待发送文件
+    let newUploadedFiles: FileAttachment[] = [];
+    if (currentPendingFiles.length > 0) {
+      newUploadedFiles = await uploadPendingFiles(currentPendingFiles);
+    }
+
+    // 2. 合并已有的文件上下文和新上传的文件
+    const allFileIds = [...fileContext.file_ids, ...newUploadedFiles.map(f => f.id)];
+    const allFileInfos = [...fileContext.file_infos, ...newUploadedFiles];
+
+    // 3. 更新文件上下文（文件在对话中持续有效）
+    if (newUploadedFiles.length > 0) {
+      setFileContext({
+        file_ids: allFileIds,
+        file_infos: allFileInfos
+      });
+    }
+    // ========== file_context 管理结束 ==========
 
     addLog('INFO', locale === "zh" ? '开始发送消息' : 'Start sending message', {
       agentName,
@@ -170,13 +318,17 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
       requestUrl,
       hostname: window.location.hostname,
       port: window.location.port,
-      userAgent: navigator.userAgent
+      userAgent: navigator.userAgent,
+      conversationId: activeConversationId,
+      fileIds: allFileIds
     });
 
+    // 用户消息：使用所有文件信息
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       role: 'user',
       content: userContent,
+      attachments: allFileInfos.length > 0 ? allFileInfos : undefined,
     };
 
     const assistantMsgId = `msg-${Date.now() + 1}`;
@@ -187,13 +339,15 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
       thinking: '',
       toolCalls: [],
       isThinkingExpanded: false,
-      loadedSkills: []
+      loadedSkills: [],
+      skillStates: []
     }]);
     setIsRunning(true);
     streamingContentRef.current = "";
     streamingThinkingRef.current = "";
     streamingToolCallsRef.current = [];
     streamingLoadedSkillsRef.current = [];
+    streamingSkillStatesRef.current = [];  // T017: 重置 Skill 执行状态
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
@@ -205,14 +359,15 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
     }));
 
     try {
-      addLog('INFO', locale === "zh" ? '准备发起 fetch 请求' : 'Preparing fetch request', { url: requestUrl, historyCount: historyMessages.length });
+      addLog('INFO', locale === "zh" ? '准备发起 fetch 请求' : 'Preparing fetch request', { url: requestUrl, historyCount: historyMessages.length, fileIds: allFileIds });
 
       const res = await fetch(requestUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userContent,
-          history: historyMessages
+          history: historyMessages,
+          file_ids: allFileIds  // 使用合并后的文件ID列表
         }),
         signal: abortController.signal,
       });
@@ -283,10 +438,58 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
                   args: data.args || {}
                 };
                 streamingToolCallsRef.current = [...streamingToolCallsRef.current, newToolCall];
+
+                // T017: 检测 execute_skill 工具调用，更新 Skill 执行状态
+                if (data.name === 'execute_skill' && data.args?.skill_name) {
+                  const skillName = data.args.skill_name;
+                  const existingState = streamingSkillStatesRef.current.find(s => s.skillName === skillName);
+
+                  if (existingState) {
+                    // 更新现有状态为执行中
+                    streamingSkillStatesRef.current = streamingSkillStatesRef.current.map(s =>
+                      s.skillName === skillName
+                        ? { ...s, status: 'executing', message: locale === "zh" ? '正在执行...' : 'Executing...' }
+                        : s
+                    );
+                  } else {
+                    // 添加新的执行状态
+                    const newSkillState: SkillExecutionState = {
+                      skillName,
+                      status: 'executing',
+                      message: locale === "zh" ? '正在执行...' : 'Executing...'
+                    };
+                    streamingSkillStatesRef.current = [...streamingSkillStatesRef.current, newSkillState];
+                  }
+                }
+
                 setMessages((prev) =>
                   prev.map((msg) =>
                     msg.id === assistantMsgId
-                      ? { ...msg, toolCalls: [...(msg.toolCalls || []), newToolCall] }
+                      ? {
+                          ...msg,
+                          toolCalls: [...(msg.toolCalls || []), newToolCall],
+                          // T017: 更新 Skill 执行状态
+                          skillStates: (() => {
+                            if (data.name === 'execute_skill' && data.args?.skill_name) {
+                              const skillName = data.args.skill_name;
+                              const existingState = msg.skillStates?.find(s => s.skillName === skillName);
+                              if (existingState) {
+                                return msg.skillStates?.map(s =>
+                                  s.skillName === skillName
+                                    ? { ...s, status: 'executing', message: locale === "zh" ? '正在执行...' : 'Executing...' }
+                                    : s
+                                );
+                              } else {
+                                return [...(msg.skillStates || []), {
+                                  skillName,
+                                  status: 'executing' as const,
+                                  message: locale === "zh" ? '正在执行...' : 'Executing...'
+                                }];
+                              }
+                            }
+                            return msg.skillStates;
+                          })()
+                        }
                       : msg
                   )
                 );
@@ -295,6 +498,16 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
                 const toolCallId = data.call_id;
                 const toolName = data.name;
                 const toolResult = data.result;
+
+                // T017: 检测 execute_skill 工具结果，更新 Skill 执行状态
+                if (toolName === 'execute_skill') {
+                  const isFailed = toolResult?.includes('error') || toolResult?.includes('Error') || toolResult?.includes('失败');
+                  streamingSkillStatesRef.current = streamingSkillStatesRef.current.map(s =>
+                    s.status === 'executing'
+                      ? { ...s, status: isFailed ? 'failed' : 'completed', message: isFailed ? (locale === "zh" ? '执行失败' : 'Failed') : (locale === "zh" ? '执行完成' : 'Completed') }
+                      : s
+                  );
+                }
 
                 streamingToolCallsRef.current = streamingToolCallsRef.current.map(tc => {
                   // 优先使用 call_id 匹配，确保同名工具的多次调用能正确匹配
@@ -310,16 +523,27 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
                 setMessages((prev) =>
                   prev.map((msg) =>
                     msg.id === assistantMsgId
-                      ? { ...msg, toolCalls: msg.toolCalls?.map(tc => {
-                          // 同样的匹配逻辑
-                          if (toolCallId && tc.call_id === toolCallId) {
-                            return { ...tc, result: toolResult };
-                          }
-                          if (!toolCallId && tc.name === toolName && !tc.result) {
-                            return { ...tc, result: toolResult };
-                          }
-                          return tc;
-                        }) }
+                      ? {
+                          ...msg,
+                          toolCalls: msg.toolCalls?.map(tc => {
+                            // 同样的匹配逻辑
+                            if (toolCallId && tc.call_id === toolCallId) {
+                              return { ...tc, result: toolResult };
+                            }
+                            if (!toolCallId && tc.name === toolName && !tc.result) {
+                              return { ...tc, result: toolResult };
+                            }
+                            return tc;
+                          }),
+                          // T017: 更新 Skill 执行状态
+                          skillStates: toolName === 'execute_skill'
+                            ? msg.skillStates?.map(s =>
+                                s.status === 'executing'
+                                  ? { ...s, status: (toolResult?.includes('error') || toolResult?.includes('Error') || toolResult?.includes('失败')) ? 'failed' : 'completed', message: (toolResult?.includes('error') || toolResult?.includes('Error') || toolResult?.includes('失败')) ? (locale === "zh" ? '执行失败' : 'Failed') : (locale === "zh" ? '执行完成' : 'Completed') }
+                                  : s
+                              )
+                            : msg.skillStates
+                        }
                       : msg
                   )
                 );
@@ -358,30 +582,61 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
                   )
                 );
               } else if (data.type === 'skill_loading') {
-                // 技能加载中
+                // 技能加载中 (T017)
                 const skillName = data.skill_name;
-                streamingThinkingRef.current = `正在加载技能: ${skillName}...`;
+                streamingThinkingRef.current = locale === "zh" ? `正在加载技能: ${skillName}...` : `Loading skill: ${skillName}...`;
+
+                // 更新 Skill 执行状态
+                const newSkillState: SkillExecutionState = {
+                  skillName,
+                  status: 'loading',
+                  message: locale === "zh" ? '正在加载...' : 'Loading...'
+                };
+                streamingSkillStatesRef.current = [...streamingSkillStatesRef.current, newSkillState];
+
                 setMessages((prev) =>
                   prev.map((msg) =>
                     msg.id === assistantMsgId
-                      ? { ...msg, thinking: streamingThinkingRef.current }
+                      ? {
+                          ...msg,
+                          thinking: streamingThinkingRef.current,
+                          loadingSkill: skillName,
+                          skillStates: [...(msg.skillStates || []), newSkillState]
+                        }
                       : msg
                   )
                 );
               } else if (data.type === 'skill_loaded') {
-                // 技能加载完成
+                // 技能加载完成 (T017)
                 const skillName = data.skill_name;
                 const success = data.success;
+
+                // 更新 Skill 执行状态
+                streamingSkillStatesRef.current = streamingSkillStatesRef.current.map(s =>
+                  s.skillName === skillName
+                    ? { ...s, status: success ? 'completed' : 'failed', message: success ? (locale === "zh" ? '加载完成' : 'Loaded') : (locale === "zh" ? '加载失败' : 'Failed') }
+                    : s
+                );
+
                 if (success && !streamingLoadedSkillsRef.current.includes(skillName)) {
                   streamingLoadedSkillsRef.current = [...streamingLoadedSkillsRef.current, skillName];
                 }
+
                 setMessages((prev) =>
                   prev.map((msg) =>
                     msg.id === assistantMsgId
                       ? {
                           ...msg,
                           loadedSkills: [...(msg.loadedSkills || []), ...(success ? [skillName] : [])],
-                          thinking: success ? `已加载技能: ${skillName}` : `加载技能失败: ${skillName}`
+                          loadingSkill: msg.loadingSkill === skillName ? undefined : msg.loadingSkill,
+                          skillStates: msg.skillStates?.map(s =>
+                            s.skillName === skillName
+                              ? { ...s, status: success ? 'completed' : 'failed', message: success ? (locale === "zh" ? '加载完成' : 'Loaded') : (locale === "zh" ? '加载失败' : 'Failed') }
+                              : s
+                          ),
+                          thinking: success
+                            ? (locale === "zh" ? `已加载技能: ${skillName}` : `Skill loaded: ${skillName}`)
+                            : (locale === "zh" ? `加载技能失败: ${skillName}` : `Failed to load skill: ${skillName}`)
                         }
                       : msg
                   )
@@ -452,11 +707,17 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
       abortControllerRef.current = null;
 
       // 保存会话消息到后端
-      if (conversationId && onConversationChange && messages.length > 0) {
-        onConversationChange(conversationId, messages);
-      }
+      // 注意：这里使用 setMessages 获取最新的消息列表
+      // 因为 messages 在闭包中可能不是最新的
+      setMessages((currentMessages) => {
+        if (onConversationChange && currentMessages.length > 0) {
+          // 使用 activeConversationId（可能在本次发送中刚创建的）
+          onConversationChange(activeConversationId, currentMessages);
+        }
+        return currentMessages;
+      });
     }
-  }, [inputValue, isRunning, agentName, locale, messages, shortTermMemory, scrollToBottom, t, conversationId, onConversationChange]);
+  }, [inputValue, isRunning, agentName, locale, messages, shortTermMemory, scrollToBottom, t, conversationId, onConversationChange, onCreateConversation, pendingFiles, fileContext, uploadPendingFiles]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -475,13 +736,97 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
     );
   };
 
+  // ============ 文件上传相关函数 ============
+
+  /**
+   * 生成文件唯一 ID
+   */
+  const generateFileId = () => `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  /**
+   * 获取文件图标组件
+   */
+  const getFileIcon = (type: string) => {
+    if (type === 'application/pdf') return <FileText className="w-3 h-3 text-red-400" />;
+    if (type.includes('word') || type.includes('document')) return <FileText className="w-3 h-3 text-blue-400" />;
+    if (type.includes('spreadsheet') || type.includes('excel')) return <FileSpreadsheet className="w-3 h-3 text-green-400" />;
+    if (type.startsWith('image/')) return <Image className="w-3 h-3 text-purple-400" />;
+    return <File className="w-3 h-3 text-gray-400" />;
+  };
+
+  /**
+   * 处理文件选择
+   */
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const validFiles: PendingFile[] = [];
+
+    for (const file of files) {
+      // 检查文件类型
+      if (!DEFAULT_FILE_CONFIG.allowedTypes.includes(file.type)) {
+        console.warn(`Unsupported file type: ${file.name}`);
+        continue;
+      }
+      // 检查文件大小
+      if (file.size > DEFAULT_FILE_CONFIG.maxFileSize) {
+        console.warn(`File too large: ${file.name}`);
+        continue;
+      }
+      validFiles.push({
+        id: generateFileId(),
+        file,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      });
+    }
+
+    if (validFiles.length > 0) {
+      setPendingFiles(prev => [...prev, ...validFiles]);
+    }
+    // 重置 input
+    e.target.value = '';
+  }, []);
+
+  /**
+   * 移除待发送文件
+   */
+  const handleRemoveFile = useCallback((fileId: string) => {
+    setPendingFiles(prev => prev.filter(f => f.id !== fileId));
+  }, []);
+
+  /**
+   * 打开文件选择器
+   */
+  const handleUploadClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
   // 渲染思考过程区域
   const renderThinkingSection = (msg: ChatMessage) => {
-    const hasThinking = msg.thinking || (msg.toolCalls && msg.toolCalls.length > 0) || (msg.loadedSkills && msg.loadedSkills.length > 0);
+    const hasThinking = msg.thinking || (msg.toolCalls && msg.toolCalls.length > 0) || (msg.loadedSkills && msg.loadedSkills.length > 0) || (msg.skillStates && msg.skillStates.length > 0);
     if (!hasThinking) return null;
 
     // 如果正在运行且有思考内容或工具调用，自动展开
     const isExpanded = msg.isThinkingExpanded || (isRunning && (msg.thinking || (msg.toolCalls && msg.toolCalls.length > 0)));
+
+    /**
+     * 获取 Skill 状态的颜色和图标 (T017)
+     */
+    const getSkillStatusStyle = (status: SkillExecutionState['status']) => {
+      switch (status) {
+        case 'loading':
+          return { color: 'text-yellow-400', bgColor: 'bg-yellow-500/20', borderColor: 'border-yellow-500/50' };
+        case 'executing':
+          return { color: 'text-blue-400', bgColor: 'bg-blue-500/20', borderColor: 'border-blue-500/50' };
+        case 'completed':
+          return { color: 'text-green-400', bgColor: 'bg-green-500/20', borderColor: 'border-green-500/50' };
+        case 'failed':
+          return { color: 'text-red-400', bgColor: 'bg-red-500/20', borderColor: 'border-red-500/50' };
+        default:
+          return { color: 'text-gray-400', bgColor: 'bg-gray-500/20', borderColor: 'border-gray-500/50' };
+      }
+    };
 
     return (
       <div className="border-b border-white/10">
@@ -504,6 +849,12 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
           {isRunning && msg.thinking && !msg.content && (
             <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full animate-pulse ml-1"></span>
           )}
+          {/* T017: Skill 状态指示器 */}
+          {msg.loadingSkill && (
+            <span className="ml-2 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-[10px] animate-pulse">
+              {locale === "zh" ? `加载: ${msg.loadingSkill}` : `Loading: ${msg.loadingSkill}`}
+            </span>
+          )}
           {!isExpanded && msg.toolCalls && msg.toolCalls.length > 0 && (
             <span className="text-xs text-gray-500 ml-auto">
               {msg.toolCalls.length} {t("toolCallsCount")}
@@ -514,6 +865,32 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
         {/* 展开内容 */}
         {isExpanded && (
           <div className="px-4 py-2 bg-white/5 space-y-2">
+            {/* T017: Skill 执行状态区域 */}
+            {msg.skillStates && msg.skillStates.length > 0 && (
+              <div className="border-l-2 border-cyan-500/50 pl-2 py-1">
+                <div className="flex items-center gap-1 text-xs mb-1">
+                  <span className="text-cyan-400 font-medium">
+                    {locale === "zh" ? "技能执行状态" : "Skill Execution"}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {msg.skillStates.map((skill, idx) => {
+                    const style = getSkillStatusStyle(skill.status);
+                    return (
+                      <div key={idx} className={`flex items-center gap-2 px-2 py-1 rounded ${style.bgColor} border ${style.borderColor}`}>
+                        {skill.status === 'loading' && <Loader2 className="w-3 h-3 text-yellow-400 animate-spin" />}
+                        {skill.status === 'executing' && <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />}
+                        {skill.status === 'completed' && <span className="text-green-400">✓</span>}
+                        {skill.status === 'failed' && <span className="text-red-400">✗</span>}
+                        <span className={`text-xs font-mono ${style.color}`}>{skill.skillName}</span>
+                        <span className="text-[10px] text-gray-500">{skill.message}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* 思考内容 - 流式输出效果 */}
             {msg.thinking && (
               <div className="text-xs text-gray-400 italic whitespace-pre-wrap">
@@ -597,6 +974,18 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
               {msg.role === 'user' && (
                 <div className="max-w-[85%] bg-blue-500 text-white rounded-2xl rounded-br-md px-4 py-2.5 text-sm whitespace-pre-wrap">
                   {msg.content}
+                  {/* 文件附件显示 */}
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-white/20 space-y-1">
+                      {msg.attachments.map((att) => (
+                        <div key={att.id} className="flex items-center gap-2 text-xs bg-white/10 rounded px-2 py-1">
+                          {getFileIcon(att.type)}
+                          <span className="truncate max-w-[120px]">{att.name}</span>
+                          <span className="text-white/60">{formatFileSize(att.size)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -641,7 +1030,167 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
 
       {/* 输入框 */}
       <div className="p-4 border-t border-white/10">
+        {/* 上传进度指示器 (T016) */}
+        {isUploading && (
+          <div className="mb-2 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+              <span className="text-xs text-blue-400">
+                {locale === "zh" ? "正在上传文件..." : "Uploading files..."}
+              </span>
+            </div>
+            <div className="w-full bg-white/10 rounded-full h-1.5">
+              <div
+                className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+            {uploadingFileName && (
+              <div className="mt-1 text-[10px] text-gray-500">
+                {uploadingFileName}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 已上传文件上下文显示 (T016) */}
+        {fileContext.file_infos.length > 0 && !isUploading && (
+          <div className="mb-2 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Paperclip className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs text-emerald-400">
+                  {locale === "zh" ? "已上传文件" : "Uploaded Files"} ({fileContext.file_infos.length})
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={clearFileContext}
+                disabled={isRunning}
+                className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {locale === "zh" ? "清除全部" : "Clear All"}
+              </button>
+            </div>
+            <div role="list" aria-label={locale === "zh" ? "已上传文件" : "Uploaded Files"} className="flex gap-2 overflow-x-auto pb-1">
+              {fileContext.file_infos.map((file) => (
+                <div
+                  key={file.id}
+                  role="listitem"
+                  aria-label={`${file.name}, ${formatFileSize(file.size)}`}
+                  className="file-card flex-shrink-0 w-16 h-20 bg-white/5 border border-emerald-500/20 rounded-lg p-1.5 relative flex flex-col items-center justify-center group hover:bg-white/10 transition-colors"
+                >
+                  {/* 删除按钮 - 悬停时显示 */}
+                  <button
+                    type="button"
+                    onClick={() => removeUploadedFile(file.id)}
+                    aria-label={locale === "zh" ? "移除文件" : "Remove file"}
+                    className="delete-btn absolute -top-1 -right-1 w-4 h-4 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                  {/* 文件图标 */}
+                  {getFileIcon(file.type)}
+                  {/* 文件名 */}
+                  <span className="text-[8px] text-gray-300 truncate max-w-full mt-1 text-center">
+                    {file.name.length > 8 ? `${file.name.slice(0, 7)}...` : file.name}
+                  </span>
+                  {/* 文件大小 */}
+                  <span className="text-[7px] text-gray-500">
+                    {formatFileSize(file.size)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 待发送文件预览 - 符合 UX 设计稿规范 */}
+        {pendingFiles.length > 0 && !isUploading && (
+          <div className="mb-2 p-3 bg-white/5 border border-white/10 rounded-lg">
+            {/* 标题栏 */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Paperclip className="w-4 h-4 text-blue-400" />
+                <span className="text-xs text-gray-400">
+                  {t("pendingFiles")} ({pendingFiles.length})
+                </span>
+              </div>
+              {pendingFiles.length < DEFAULT_FILE_CONFIG.maxFiles && (
+                <button
+                  type="button"
+                  onClick={handleUploadClick}
+                  disabled={isRunning}
+                  className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {t("addMoreFiles")}
+                </button>
+              )}
+            </div>
+            {/* 文件列表 - 可水平滚动，符合 UX 设计稿尺寸规范 (64px x 80px) */}
+            <div role="list" aria-label={t("pendingFiles")} className="flex gap-2 overflow-x-auto pb-1">
+              {pendingFiles.map((file) => (
+                <div
+                  key={file.id}
+                  role="listitem"
+                  aria-label={`${file.name}, ${formatFileSize(file.size)}`}
+                  className="file-card flex-shrink-0 w-16 h-20 bg-white/5 border border-white/10 rounded-lg p-1.5 relative flex flex-col items-center justify-center group hover:bg-white/10 transition-colors"
+                >
+                  {/* 删除按钮 - 悬停时显示 */}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFile(file.id)}
+                    aria-label={t("removeFile")}
+                    className="delete-btn absolute -top-1 -right-1 w-4 h-4 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                  {/* 文件图标 - 符合 UX 设计稿颜色规范 */}
+                  {getFileIcon(file.type)}
+                  {/* 文件名 - 最多8字符 */}
+                  <span className="text-[8px] text-gray-300 truncate max-w-full mt-1 text-center">
+                    {file.name.length > 8 ? `${file.name.slice(0, 7)}...` : file.name}
+                  </span>
+                  {/* 文件大小 */}
+                  <span className="text-[7px] text-gray-500">
+                    {formatFileSize(file.size)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 隐藏的文件输入 - 将 MIME 类型转换为文件扩展名 */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,.docx,.doc,.xlsx,.xls,.txt,.csv,.json,.png,.jpg,.jpeg"
+          onChange={handleFileSelect}
+          className="hidden"
+          disabled={isRunning || isUploading}
+          aria-label={t("uploadFile")}
+        />
+
         <div className="flex gap-2">
+          {/* 上传按钮 - 符合 UX 设计稿 3.2.1 */}
+          <button
+            type="button"
+            onClick={handleUploadClick}
+            disabled={isRunning || isUploading}
+            aria-label={t("uploadFile")}
+            aria-describedby="upload-hint"
+            className={`
+              p-2 rounded-lg transition-colors
+              ${pendingFiles.length > 0 || fileContext.file_ids.length > 0 ? 'text-blue-400' : 'text-gray-400 hover:text-blue-400'}
+              ${isRunning || isUploading ? 'opacity-50 cursor-not-allowed' : ''}
+            `}
+            title={t("uploadFile")}
+          >
+            <Paperclip className="w-5 h-5" />
+          </button>
+
           <input
             type="text"
             value={inputValue}
@@ -654,7 +1203,7 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, onCo
           <button
             type="button"
             onClick={handleSend}
-            disabled={isRunning || !inputValue.trim()}
+            disabled={isRunning || isUploading || (!inputValue.trim() && pendingFiles.length === 0 && fileContext.file_ids.length === 0)}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {t("send")}

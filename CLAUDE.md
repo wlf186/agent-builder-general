@@ -11,6 +11,26 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 - Multiple planning modes (React, Reflexion, Plan & Solve, ReWOO, Tree of Thought)
 - Streaming chat responses with thinking/tool-call visibility
 - Conversation history management with drawer-style UI
+- **Isolated environment support** - Conda virtual environments for skill script execution
+- **File upload functionality** - Support for PDF/DOCX/XLSX file uploads as skill inputs
+
+---
+
+> **⚠️ Agent Team 运作规则**
+>
+> 当用户**明确要求**使用 Agent Team（如 TaskForce141）处理问题时，必须严格按照团队分工模式运作：
+>
+> 1. **Lead 职责**：诊断问题 → 创建任务 → 派发给对应 teammate → 审阅结果 → 验收确认
+> 2. **禁止行为**：Lead 不得直接执行前端开发、后端开发、测试等具体工作
+> 3. **标准流程**：
+>    ```
+>    用户请求 → Lead 诊断 → 派单给 teammate → teammate 执行 → teammate 交付 → Lead 验收 → 用户确认
+>    ```
+> 4. **团队配置**：详见 `teams/TaskForce141/TEAM_CONFIG.md`
+>
+> **例外情况**：仅当用户未明确要求使用团队时，Lead 才可直接处理简单问题。
+>
+> ---
 
 ## Architecture
 
@@ -21,7 +41,7 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 │  Components: AgentChat, MCPServiceDialog, SkillDetailDialog │
 │              ModelServiceDialog, SkillUploadDialog           │
 │              ConversationDrawer, ConversationList,           │
-│              ConversationCard                                │
+│              ConversationCard, FileUploader                  │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -30,21 +50,23 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 │                    Port: 20881                               │
 │  Routes: /api/agents, /api/mcp-services, /api/skills,       │
 │          /api/model-services, /api/agents/{name}/conversations │
+│          /api/agents/{name}/environment, /api/agents/{name}/files │
+│          /api/agents/{name}/execute                          │
 └─────────────────────────────────────────────────────────────┘
                               │
-        ┌─────────────────────┼─────────────────────┼─────────────────────┬───────────────────┐
-        ▼                     ▼                     ▼                     ▼                   ▼
-┌───────────────┐   ┌─────────────────┐   ┌─────────────────┐   ┌───────────────────┐   ┌──────────────────┐
-│ AgentManager  │   │ MCPServiceRegistry│  │  SkillRegistry  │   │ModelServiceRegistry│   │ConversationManager│
-│ AgentInstance │   │   MCPManager      │   │   SkillLoader   │   │ (Zhipu/Bailian/   │   │ (JSON persistence)│
-│  AgentEngine  │   │ (stdio/SSE modes) │   │  (builtin/user) │   │    Ollama)        │   │                  │
-└───────────────┘   └─────────────────┘   └─────────────────┘   └───────────────────┘   └──────────────────┘
-        │                     │
-        ▼                     ▼
-┌───────────────┐   ┌─────────────────────────────────────────┐
-│ LangGraph     │   │ Builtin MCP Services (SSE, port 20882)  │
-│ LangChain     │   │ calculator, cold-jokes, coingecko       │
-└───────────────┘   └─────────────────────────────────────────┘
+        ┌─────────────────────┼─────────────────────┼─────────────────────┬───────────────────┬─────────────────────┐
+        ▼                     ▼                     ▼                     ▼                   ▼                     ▼
+┌───────────────┐   ┌─────────────────┐   ┌─────────────────┐   ┌───────────────────┐   ┌──────────────────┐   ┌─────────────────┐
+│ AgentManager  │   │ MCPServiceRegistry│  │  SkillRegistry  │   │ModelServiceRegistry│   │ConversationManager│   │EnvironmentManager│
+│ AgentInstance │   │   MCPManager      │   │   SkillLoader   │   │ (Zhipu/Bailian/   │   │ (JSON persistence)│   │ (Conda envs)    │
+│  AgentEngine  │   │ (stdio/SSE modes) │   │  (builtin/user) │   │    Ollama)        │   │                  │   └─────────────────┘
+└───────────────┘   └─────────────────┘   └─────────────────┘   └───────────────────┘   └──────────────────┘           │
+        │                     │                                                               │                   │
+        ▼                     ▼                                                               ▼                   ▼
+┌───────────────┐   ┌─────────────────────────────────────────┐                     ┌─────────────────┐   ┌─────────────────┐
+│ LangGraph     │   │ Builtin MCP Services (SSE, port 20882)  │                     │FileStorageManager│   │ExecutionEngine  │
+│ LangChain     │   │ calculator, cold-jokes, coingecko       │                     │(Agent file store)│   │(Script execution)│
+└───────────────┘   └─────────────────────────────────────────┘                     └─────────────────┘   └─────────────────┘
 ```
 
 ### Core Components
@@ -58,6 +80,9 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 - **`src/mcp_registry.py`**: Global MCP service configuration registry
 - **`src/skill_registry.py`**: Manages skill registration and discovery
 - **`src/builtin_services.py`**: Auto-starts builtin MCP services on startup
+- **`src/environment_manager.py`**: Manages Conda virtual environments for isolated skill execution
+- **`src/file_storage_manager.py`**: Handles file uploads and storage for agents
+- **`src/execution_engine.py`**: Executes skill scripts in isolated environments
 
 ### Data Directories
 
@@ -66,10 +91,14 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
   - `mcp_services.json`: MCP service registry
   - `skills_index.json`: Skills index
   - `conversations/{agent_name}/`: Conversation history JSON files per agent
+  - `files/{agent_name}/`: Uploaded files for each agent
+  - `environments/{agent_name}/`: Environment metadata
+  - `executions/{agent_name}/`: Execution records
 - **`skills/`**: Skills storage
   - `builtin/`: Pre-installed skills (read from SKILL.md)
   - `user/`: User-uploaded skills
 - **`builtin_mcp_services/`**: Local MCP service implementations
+- **`environments/`**: Conda virtual environments for isolated execution (env_{agent_name}/)
 
 ## Commands
 
@@ -126,6 +155,35 @@ python tests/test_streaming_output.py
 > 3. 工具调用（tool_call/tool_result）的实时展示
 > 4. 技能加载状态（skill_loading/skill_loaded）的实时反馈
 > 5. 性能指标（metrics）的准确统计
+
+---
+
+> **⚠️ 重要备注：前端静态资源 404 问题（2026-03-11 排查记录）**
+>
+> **问题现象**：主页 HTML 返回 200，但所有 JS/CSS 静态资源返回 404，页面样式失效
+>
+> **核心原因**：Next.js 构建缓存不一致
+> - HTML 引用：`/_next/static/chunks/webpack.js`（无 hash）
+> - 实际文件：`webpack-e77c34dddeff0db3.js`（带 hash）
+> - 导致浏览器请求的文件名与实际构建文件不匹配
+>
+> **解决方案**：
+> ```bash
+> # 1. 停止前端服务（找到并杀掉 next-server 进程）
+> kill -9 <next-server-pid>
+>
+> # 2. 清除构建缓存
+> rm -rf frontend/.next
+>
+> # 3. 重新启动
+> cd frontend && npm run dev
+> ```
+>
+> **后续注意事项**：
+> 1. **禁止热删除**：在开发服务器运行时删除 `.next` 目录会导致服务状态不一致
+> 2. **先停后清**：必须先停止服务，再清除缓存，最后重启
+> 3. **验证方法**：使用 Playwright 或浏览器 DevTools 检查控制台是否有 404 错误
+> 4. **生产环境**：使用 `npm run build && npm start`，避免开发模式的缓存问题
 
 ---
 
@@ -426,7 +484,39 @@ Configure model services via `/api/model-services` endpoints. Each service defin
 | MCP Services | `GET/POST /api/mcp-services`, `GET/PUT/DELETE /api/mcp-services/{name}`, `POST /api/mcp-services/{name}/test`, `GET /api/mcp-services/{name}/tools` |
 | Skills | `GET /api/skills`, `GET/DELETE /api/skills/{name}`, `GET /api/skills/{name}/files/{path}`, `POST /api/skills/upload` |
 | Model Services | `GET/POST /api/model-services`, `GET/PUT/DELETE /api/model-services/{name}`, `POST /api/model-services/test`, `GET /api/model-services/default-url/{provider}` |
+| Environment | `POST /api/agents/{name}/environment`, `GET /api/agents/{name}/environment`, `DELETE /api/agents/{name}/environment`, `POST /api/agents/{name}/environment/packages`, `GET /api/agents/{name}/environment/packages` |
+| Files | `POST /api/agents/{name}/files`, `GET /api/agents/{name}/files`, `GET /api/agents/{name}/files/{file_id}`, `DELETE /api/agents/{name}/files/{file_id}` |
+| Execution | `POST /api/agents/{name}/execute`, `GET /api/agents/{name}/executions`, `GET /api/agents/{name}/executions/{execution_id}` |
 
 ## Debugging
 
 See `badcase.md` for troubleshooting guidance on streaming issues and debugging tools (Playwright automation, SSE testing scripts).
+
+---
+
+## Iteration History
+
+### iteration-2603121000 (2026-03-12)
+
+**需求**: 调试对话支持上传文件供智能体读取 & Agent Skill支持独立环境运行
+
+**核心改动**:
+1. **Skill脚本入口**: 为AB-pdf和AB-docx添加`scripts/main.py`入口脚本
+2. **依赖自动安装**: `EnvironmentManager.install_skill_dependencies()`自动检测并安装requirements.txt
+3. **工具描述优化**: `execute_skill`工具添加Few-shot调用示例
+4. **file_context增强**: 包含file_id表格和明确的调用示例
+5. **前端状态展示**: Skill执行状态可视化（loading/executing/completed/failed）
+
+**新增文件**:
+- `skills/builtin/AB-pdf/scripts/main.py`
+- `skills/builtin/AB-pdf/scripts/requirements.txt`
+- `skills/builtin/AB-docx/scripts/main.py`
+- `skills/builtin/AB-docx/scripts/requirements.txt`
+- `frontend/src/components/FileUploader.tsx`
+- `frontend/src/lib/fileApi.ts`
+- `frontend/src/types/`
+
+**已知问题**:
+- 使用skill后前台左下角可能显示issue错误（待修复）
+
+**绩效**: Lead B

@@ -1,0 +1,350 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - button "返回" [ref=e6] [cursor=pointer]:
+            - img [ref=e7]
+            - text: 返回
+          - generic [ref=e10]:
+            - img [ref=e12]
+            - generic [ref=e15]:
+              - heading "test001" [level=1] [ref=e16]
+              - paragraph [ref=e17]: 智能体配置
+        - generic [ref=e18]:
+          - button "EN" [ref=e19] [cursor=pointer]:
+            - img [ref=e20]
+            - text: EN
+          - button "删除" [ref=e23] [cursor=pointer]:
+            - img [ref=e24]
+            - text: 删除
+          - button "保存" [ref=e27] [cursor=pointer]:
+            - img [ref=e28]
+            - text: 保存
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]:
+          - generic [ref=e35] [cursor=pointer]:
+            - img [ref=e36]
+            - generic [ref=e38]: 人设与提示词
+            - img [ref=e39]
+          - textbox "描述智能体的角色、性格和能力..." [ref=e42]: 测试智能体
+        - generic [ref=e43]:
+          - generic [ref=e44] [cursor=pointer]:
+            - img [ref=e45]
+            - generic [ref=e47]: 模型配置
+            - img [ref=e48]
+          - generic [ref=e51]:
+            - generic [ref=e52]: 模型服务
+            - combobox [ref=e53]:
+              - option "请选择模型"
+              - option "TESTLLM (智谱AI - glm-4.5-air)" [selected]
+            - generic [ref=e54]:
+              - generic [ref=e55]: 模型信息
+              - generic [ref=e56]:
+                - generic [ref=e58]: glm-4.5-air
+                - generic [ref=e59]: (智谱AI)
+        - generic [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+          - generic [ref=e65]: 高级设置
+          - img [ref=e66]
+        - generic [ref=e68]:
+          - generic [ref=e69] [cursor=pointer]:
+            - img [ref=e70]
+            - generic [ref=e72]: 工具配置
+            - img [ref=e73]
+          - generic [ref=e76]:
+            - paragraph [ref=e77]: 选择此 Agent 可使用的 MCP 服务
+            - paragraph [ref=e78]: 💡 服务包含多个工具，Agent 将根据需要自动选择调用
+            - generic [ref=e79] [cursor=pointer]:
+              - checkbox "calculator 预置 sse 计算器服务：支持加减乘除、幂运算、平方根等数学计算" [ref=e80]
+              - generic [ref=e81]:
+                - generic [ref=e82]:
+                  - generic [ref=e83]: calculator
+                  - generic [ref=e84]: 预置
+                  - generic [ref=e86]: sse
+                - paragraph [ref=e87]: 计算器服务：支持加减乘除、幂运算、平方根等数学计算
+            - generic [ref=e88] [cursor=pointer]:
+              - checkbox "cold-jokes 预置 sse 冷笑话服务：提供各种类型的冷笑话，让人开心一下" [ref=e89]
+              - generic [ref=e90]:
+                - generic [ref=e91]:
+                  - generic [ref=e92]: cold-jokes
+                  - generic [ref=e93]: 预置
+                  - generic [ref=e95]: sse
+                - paragraph [ref=e96]: 冷笑话服务：提供各种类型的冷笑话，让人开心一下
+            - generic [ref=e97] [cursor=pointer]:
+              - checkbox "coingecko sse CoinGecko 加密货币数据：实时价格、市场数据、历史K线、NFT、链上数据等（50+工具）" [ref=e98]
+              - generic [ref=e99]:
+                - generic [ref=e100]:
+                  - generic [ref=e101]: coingecko
+                  - generic [ref=e103]: sse
+                - paragraph [ref=e104]: CoinGecko 加密货币数据：实时价格、市场数据、历史K线、NFT、链上数据等（50+工具）
+        - generic [ref=e105]:
+          - generic [ref=e106] [cursor=pointer]:
+            - img [ref=e107]
+            - generic [ref=e109]: 技能配置
+            - img [ref=e110]
+          - generic [ref=e113]:
+            - paragraph [ref=e114]: 选择此 Agent 可使用的技能
+            - paragraph [ref=e115]: 💡 技能会加载到系统提示词中，指导 Agent 完成特定任务
+            - generic [ref=e116] [cursor=pointer]:
+              - 'checkbox "AB-Doc Co-Authoring Workflow 官方 v1.0.0 This skill provides a structured workflow for guiding users through collaborative document creation. Act as an active guide, walking users through three stages: Context Gathering, Refinement & Structure, and Reader Testing." [ref=e117]'
+              - generic [ref=e118]:
+                - generic [ref=e119]:
+                  - generic [ref=e120]: AB-Doc Co-Authoring Workflow
+                  - generic [ref=e121]: 官方
+                  - generic [ref=e122]: v1.0.0
+                - paragraph [ref=e123]: "This skill provides a structured workflow for guiding users through collaborative document creation. Act as an active guide, walking users through three stages: Context Gathering, Refinement & Structure, and Reader Testing."
+            - generic [ref=e124] [cursor=pointer]:
+              - checkbox "AB-internal-comms 官方 v1.0.0 A set of resources to help me write all kinds of internal communications, using the formats that my company likes to use. Claude should use this skill whenever asked to write some sort of internal communications (status reports, leadership updates, 3P updates, company newsletters, FAQs, incident reports, project updates, etc.)." [ref=e125]
+              - generic [ref=e126]:
+                - generic [ref=e127]:
+                  - generic [ref=e128]: AB-internal-comms
+                  - generic [ref=e129]: 官方
+                  - generic [ref=e130]: v1.0.0
+                - paragraph [ref=e131]: A set of resources to help me write all kinds of internal communications, using the formats that my company likes to use. Claude should use this skill whenever asked to write some sort of internal communications (status reports, leadership updates, 3P updates, company newsletters, FAQs, incident reports, project updates, etc.).
+            - generic [ref=e132] [cursor=pointer]:
+              - checkbox "AB-Requirements for Outputs 官方 v1.0.0 - Use a consistent, professional font (e.g., Arial, Times New Roman) for all deliverables unless otherwise instructed by the user" [ref=e133]
+              - generic [ref=e134]:
+                - generic [ref=e135]:
+                  - generic [ref=e136]: AB-Requirements for Outputs
+                  - generic [ref=e137]: 官方
+                  - generic [ref=e138]: v1.0.0
+                - paragraph [ref=e139]: "- Use a consistent, professional font (e.g., Arial, Times New Roman) for all deliverables unless otherwise instructed by the user"
+            - generic [ref=e140] [cursor=pointer]:
+              - checkbox "AB-PDF Processing Guide 官方 v1.0.0 This guide covers essential PDF processing operations using Python libraries and command-line tools. For advanced features, JavaScript libraries, and detailed examples, see REFERENCE.md. If you need to fill out a PDF form, read FORMS.md and follow its instructions." [ref=e141]
+              - generic [ref=e142]:
+                - generic [ref=e143]:
+                  - generic [ref=e144]: AB-PDF Processing Guide
+                  - generic [ref=e145]: 官方
+                  - generic [ref=e146]: v1.0.0
+                - paragraph [ref=e147]: This guide covers essential PDF processing operations using Python libraries and command-line tools. For advanced features, JavaScript libraries, and detailed examples, see REFERENCE.md. If you need to fill out a PDF form, read FORMS.md and follow its instructions.
+            - generic [ref=e148] [cursor=pointer]:
+              - checkbox "AB-Theme Factory Skill 官方 v1.0.0 This skill provides a curated collection of professional font and color themes themes, each with carefully selected color palettes and font pairings. Once a theme is chosen, it can be applied to any artifact." [ref=e149]
+              - generic [ref=e150]:
+                - generic [ref=e151]:
+                  - generic [ref=e152]: AB-Theme Factory Skill
+                  - generic [ref=e153]: 官方
+                  - generic [ref=e154]: v1.0.0
+                - paragraph [ref=e155]: This skill provides a curated collection of professional font and color themes themes, each with carefully selected color palettes and font pairings. Once a theme is chosen, it can be applied to any artifact.
+            - generic [ref=e156] [cursor=pointer]:
+              - checkbox "AB-Anthropic Brand Styling 官方 v1.0.0 To access Anthropic's official brand identity and style resources, use this skill." [ref=e157]
+              - generic [ref=e158]:
+                - generic [ref=e159]:
+                  - generic [ref=e160]: AB-Anthropic Brand Styling
+                  - generic [ref=e161]: 官方
+                  - generic [ref=e162]: v1.0.0
+                - paragraph [ref=e163]: To access Anthropic's official brand identity and style resources, use this skill.
+            - generic [ref=e164] [cursor=pointer]:
+              - checkbox "AB-MCP Server Development Guide 官方 v1.0.0 Create MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. The quality of an MCP server is measured by how well it enables LLMs to accomplish real-world tasks." [ref=e165]
+              - generic [ref=e166]:
+                - generic [ref=e167]:
+                  - generic [ref=e168]: AB-MCP Server Development Guide
+                  - generic [ref=e169]: 官方
+                  - generic [ref=e170]: v1.0.0
+                - paragraph [ref=e171]: Create MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. The quality of an MCP server is measured by how well it enables LLMs to accomplish real-world tasks.
+            - generic [ref=e172] [cursor=pointer]:
+              - checkbox "AB-Slack GIF Creator 官方 v1.0.0 A toolkit providing utilities and knowledge for creating animated GIFs optimized for Slack." [ref=e173]
+              - generic [ref=e174]:
+                - generic [ref=e175]:
+                  - generic [ref=e176]: AB-Slack GIF Creator
+                  - generic [ref=e177]: 官方
+                  - generic [ref=e178]: v1.0.0
+                - paragraph [ref=e179]: A toolkit providing utilities and knowledge for creating animated GIFs optimized for Slack.
+            - generic [ref=e180] [cursor=pointer]:
+              - checkbox "AB-Web Application Testing 官方 v1.0.0 To test local web applications, write native Python Playwright scripts." [ref=e181]
+              - generic [ref=e182]:
+                - generic [ref=e183]:
+                  - generic [ref=e184]: AB-Web Application Testing
+                  - generic [ref=e185]: 官方
+                  - generic [ref=e186]: v1.0.0
+                - paragraph [ref=e187]: To test local web applications, write native Python Playwright scripts.
+            - generic [ref=e188] [cursor=pointer]:
+              - checkbox "AB-frontend-design 官方 v1.0.0 Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics." [ref=e189]
+              - generic [ref=e190]:
+                - generic [ref=e191]:
+                  - generic [ref=e192]: AB-frontend-design
+                  - generic [ref=e193]: 官方
+                  - generic [ref=e194]: v1.0.0
+                - paragraph [ref=e195]: Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.
+            - generic [ref=e196] [cursor=pointer]:
+              - checkbox "AB-canvas-design 官方 v1.0.0 Create beautiful visual art in .png and .pdf documents using design philosophy. You should use this skill when the user asks to create a poster, piece of art, design, or other static piece. Create original visual designs, never copying existing artists' work to avoid copyright violations." [ref=e197]
+              - generic [ref=e198]:
+                - generic [ref=e199]:
+                  - generic [ref=e200]: AB-canvas-design
+                  - generic [ref=e201]: 官方
+                  - generic [ref=e202]: v1.0.0
+                - paragraph [ref=e203]: Create beautiful visual art in .png and .pdf documents using design philosophy. You should use this skill when the user asks to create a poster, piece of art, design, or other static piece. Create original visual designs, never copying existing artists' work to avoid copyright violations.
+            - generic [ref=e204] [cursor=pointer]:
+              - checkbox "AB-PPTX Skill 官方 v1.0.0 | Task | Guide |" [ref=e205]
+              - generic [ref=e206]:
+                - generic [ref=e207]:
+                  - generic [ref=e208]: AB-PPTX Skill
+                  - generic [ref=e209]: 官方
+                  - generic [ref=e210]: v1.0.0
+                - paragraph [ref=e211]: "| Task | Guide |"
+            - generic [ref=e212] [cursor=pointer]:
+              - checkbox "AB-Web Artifacts Builder 官方 v1.0.0 To build powerful frontend claude.ai artifacts, follow these steps:" [ref=e213]
+              - generic [ref=e214]:
+                - generic [ref=e215]:
+                  - generic [ref=e216]: AB-Web Artifacts Builder
+                  - generic [ref=e217]: 官方
+                  - generic [ref=e218]: v1.0.0
+                - paragraph [ref=e219]: "To build powerful frontend claude.ai artifacts, follow these steps:"
+            - generic [ref=e220] [cursor=pointer]:
+              - checkbox "AB-Skill Creator 官方 v1.0.0 A skill for creating new skills and iteratively improving them." [ref=e221]
+              - generic [ref=e222]:
+                - generic [ref=e223]:
+                  - generic [ref=e224]: AB-Skill Creator
+                  - generic [ref=e225]: 官方
+                  - generic [ref=e226]: v1.0.0
+                - paragraph [ref=e227]: A skill for creating new skills and iteratively improving them.
+            - generic [ref=e228] [cursor=pointer]:
+              - checkbox "AB-algorithmic-art 官方 v1.0.0 Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use this when users request creating art using code, generative art, algorithmic art, flow fields, or particle systems. Create original algorithmic art rather than copying existing artists' work to avoid copyright violations." [ref=e229]
+              - generic [ref=e230]:
+                - generic [ref=e231]:
+                  - generic [ref=e232]: AB-algorithmic-art
+                  - generic [ref=e233]: 官方
+                  - generic [ref=e234]: v1.0.0
+                - paragraph [ref=e235]: Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use this when users request creating art using code, generative art, algorithmic art, flow fields, or particle systems. Create original algorithmic art rather than copying existing artists' work to avoid copyright violations.
+            - generic [ref=e236] [cursor=pointer]:
+              - checkbox "AB-DOCX creation, editing, and analysis 官方 v1.0.0 A .docx file is a ZIP archive containing XML files." [checked] [ref=e237]
+              - generic [ref=e238]:
+                - generic [ref=e239]:
+                  - generic [ref=e240]: AB-DOCX creation, editing, and analysis
+                  - generic [ref=e241]: 官方
+                  - generic [ref=e242]: v1.0.0
+                - paragraph [ref=e243]: A .docx file is a ZIP archive containing XML files.
+      - generic [ref=e245]:
+        - generic [ref=e246]:
+          - generic [ref=e247]:
+            - img [ref=e248]
+            - generic [ref=e251]: 调试对话
+          - button "历史会话" [active] [ref=e253] [cursor=pointer]:
+            - img [ref=e254]
+            - text: 历史会话
+        - generic [ref=e259]:
+          - paragraph [ref=e262]: 发送消息测试智能体
+          - generic [ref=e264]:
+            - button "上传文件" [ref=e265] [cursor=pointer]:
+              - img [ref=e266]
+            - textbox "输入消息..." [ref=e269]
+            - button "发送" [disabled] [ref=e270]
+      - generic [ref=e272]:
+        - generic [ref=e273]:
+          - heading "历史会话" [level=2] [ref=e274]
+          - generic [ref=e275]:
+            - button "新对话" [ref=e276] [cursor=pointer]:
+              - img [ref=e277]
+              - text: 新对话
+            - button [ref=e278] [cursor=pointer]:
+              - img [ref=e279]
+        - generic [ref=e283]:
+          - img [ref=e284]
+          - textbox "搜索会话..." [ref=e287]
+        - generic [ref=e290]:
+          - generic [ref=e291]: 昨天
+          - generic [ref=e292] [cursor=pointer]:
+            - generic [ref=e293]:
+              - img [ref=e294]
+              - generic [ref=e297]:
+                - heading "hi" [level=3] [ref=e298]
+                - generic [ref=e299]:
+                  - button "重命名" [ref=e300]:
+                    - img [ref=e301]
+                  - button "删除" [ref=e304]:
+                    - img [ref=e305]
+            - paragraph [ref=e308]: hi
+            - generic [ref=e309]:
+              - generic [ref=e310]: 13小时前
+              - generic [ref=e311]: ·
+              - generic [ref=e312]: 4 条消息
+          - generic [ref=e313] [cursor=pointer]:
+            - generic [ref=e314]:
+              - img [ref=e315]
+              - generic [ref=e318]:
+                - heading "你好" [level=3] [ref=e319]
+                - generic [ref=e320]:
+                  - button "重命名" [ref=e321]:
+                    - img [ref=e322]
+                  - button "删除" [ref=e325]:
+                    - img [ref=e326]
+            - paragraph [ref=e329]: 你好
+            - generic [ref=e330]:
+              - generic [ref=e331]: 17小时前
+              - generic [ref=e332]: ·
+              - generic [ref=e333]: 6 条消息
+          - generic [ref=e334] [cursor=pointer]:
+            - generic [ref=e335]:
+              - img [ref=e336]
+              - generic [ref=e339]:
+                - heading "你好啊啊啊啊" [level=3] [ref=e340]
+                - generic [ref=e341]:
+                  - button "重命名" [ref=e342]:
+                    - img [ref=e343]
+                  - button "删除" [ref=e346]:
+                    - img [ref=e347]
+            - paragraph [ref=e350]: 你好啊啊啊啊
+            - generic [ref=e351]:
+              - generic [ref=e352]: 17小时前
+              - generic [ref=e353]: ·
+              - generic [ref=e354]: 6 条消息
+          - generic [ref=e355] [cursor=pointer]:
+            - generic [ref=e356]:
+              - img [ref=e357]
+              - generic [ref=e360]:
+                - heading "你好呀" [level=3] [ref=e361]
+                - generic [ref=e362]:
+                  - button "重命名" [ref=e363]:
+                    - img [ref=e364]
+                  - button "删除" [ref=e367]:
+                    - img [ref=e368]
+            - paragraph [ref=e371]: 你好呀
+            - generic [ref=e372]:
+              - generic [ref=e373]: 18小时前
+              - generic [ref=e374]: ·
+              - generic [ref=e375]: 2 条消息
+          - generic [ref=e376] [cursor=pointer]:
+            - generic [ref=e377]:
+              - img [ref=e378]
+              - generic [ref=e381]:
+                - heading "你好" [level=3] [ref=e382]
+                - generic [ref=e383]:
+                  - button "重命名" [ref=e384]:
+                    - img [ref=e385]
+                  - button "删除" [ref=e388]:
+                    - img [ref=e389]
+            - paragraph [ref=e392]: 你好
+            - generic [ref=e393]:
+              - generic [ref=e394]: 21小时前
+              - generic [ref=e395]: ·
+              - generic [ref=e396]: 2 条消息
+          - generic [ref=e397] [cursor=pointer]:
+            - generic [ref=e398]:
+              - img [ref=e399]
+              - generic [ref=e402]:
+                - heading "第二个会话" [level=3] [ref=e403]
+                - generic [ref=e404]:
+                  - button "重命名" [ref=e405]:
+                    - img [ref=e406]
+                  - button "删除" [ref=e409]:
+                    - img [ref=e410]
+            - generic [ref=e414]: 21小时前
+          - generic [ref=e415] [cursor=pointer]:
+            - generic [ref=e416]:
+              - img [ref=e417]
+              - generic [ref=e420]:
+                - heading "测试会话" [level=3] [ref=e421]
+                - generic [ref=e422]:
+                  - button "重命名" [ref=e423]:
+                    - img [ref=e424]
+                  - button "删除" [ref=e427]:
+                    - img [ref=e428]
+            - generic [ref=e432]: 21小时前
+  - button "Open Next.js Dev Tools" [ref=e438] [cursor=pointer]:
+    - img [ref=e439]
+  - alert [ref=e442]
+```

@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 from datetime import datetime
+import uuid
 
 
 class LLMProvider(str, Enum):
@@ -170,3 +171,78 @@ class ConversationConfig(BaseModel):
     def get_message_count(self) -> int:
         """获取消息数量"""
         return len(self.messages)
+
+
+# ============================================================================
+# Skill 独立运行环境相关模型
+# ============================================================================
+
+class EnvironmentType(str, Enum):
+    """环境类型"""
+    CONDA = "conda"
+    DOCKER = "docker"  # 预留扩展
+
+
+class EnvironmentStatus(str, Enum):
+    """环境状态"""
+    CREATING = "creating"
+    READY = "ready"
+    ERROR = "error"
+    DELETED = "deleted"
+
+
+class ExecutionStatus(str, Enum):
+    """执行状态"""
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
+
+
+class AgentEnvironment(BaseModel):
+    """Agent运行环境"""
+    environment_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="环境唯一ID")
+    agent_name: str = Field(description="所属Agent名称")
+    environment_type: EnvironmentType = Field(default=EnvironmentType.CONDA, description="环境类型")
+    status: EnvironmentStatus = Field(default=EnvironmentStatus.CREATING, description="环境状态")
+    python_version: str = Field(default="3.11", description="Python版本")
+    packages: List[str] = Field(default_factory=list, description="已安装的包列表")
+    installed_dependencies: Dict[str, List[str]] = Field(
+        default_factory=dict,
+        description="已安装的Skill依赖，格式: {skill_name: [依赖列表]}"
+    )
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="更新时间")
+    error_message: Optional[str] = Field(default=None, description="错误信息")
+
+
+class FileInfo(BaseModel):
+    """文件信息"""
+    file_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="文件唯一ID")
+    agent_name: str = Field(description="所属Agent名称")
+    filename: str = Field(description="原始文件名")
+    file_size: int = Field(description="文件大小(字节)")
+    mime_type: str = Field(default="application/octet-stream", description="MIME类型")
+    checksum: str = Field(description="文件校验和(MD5)")
+    file_path: str = Field(description="存储路径")
+    uploaded_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="上传时间")
+
+
+class ExecutionRecord(BaseModel):
+    """执行记录"""
+    execution_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="执行唯一ID")
+    agent_name: str = Field(description="所属Agent名称")
+    skill_name: str = Field(description="执行的Skill名称")
+    script_path: str = Field(description="脚本路径")
+    arguments: List[str] = Field(default_factory=list, description="命令行参数")
+    input_file_ids: List[str] = Field(default_factory=list, description="输入文件ID列表")
+    status: ExecutionStatus = Field(default=ExecutionStatus.PENDING, description="执行状态")
+    exit_code: Optional[int] = Field(default=None, description="退出码")
+    stdout: str = Field(default="", description="标准输出")
+    stderr: str = Field(default="", description="标准错误")
+    duration_ms: Optional[int] = Field(default=None, description="执行时长(毫秒)")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
+    started_at: Optional[str] = Field(default=None, description="开始时间")
+    finished_at: Optional[str] = Field(default=None, description="结束时间")

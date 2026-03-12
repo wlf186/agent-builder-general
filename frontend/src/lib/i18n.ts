@@ -176,6 +176,18 @@ export const translations = {
     deleteConversation: "删除会话",
     deleteConfirm: "确定删除此会话？",
     deleteWarning: "删除后无法恢复",
+
+    // 文件上传
+    uploadFile: "上传文件",
+    pendingFiles: "待发送文件",
+    addMoreFiles: "添加更多",
+    dragDropHint: "拖放文件到此处上传",
+    fileSizeExceeded: "文件大小超过限制",
+    unsupportedFileType: "不支持的文件类型",
+    removeFile: "移除文件",
+    filesSelected: "已选择文件",
+    maxFileSizeHint: "最大文件大小",
+    supportedTypes: "支持的文件类型",
   },
   en: {
     // Common
@@ -351,6 +363,18 @@ export const translations = {
     deleteConversation: "Delete Chat",
     deleteConfirm: "Delete this conversation?",
     deleteWarning: "This cannot be undone",
+
+    // File Upload
+    uploadFile: "Upload File",
+    pendingFiles: "Pending Files",
+    addMoreFiles: "Add More",
+    dragDropHint: "Drop files here to upload",
+    fileSizeExceeded: "File size exceeds limit",
+    unsupportedFileType: "Unsupported file type",
+    removeFile: "Remove file",
+    filesSelected: "Files selected",
+    maxFileSizeHint: "Max file size",
+    supportedTypes: "Supported file types",
   },
 };
 

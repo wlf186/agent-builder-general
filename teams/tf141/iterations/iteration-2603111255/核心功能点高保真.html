@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Builder - 文件上传功能高保真原型</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* 自定义滚动条 */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255,  255, 255, 0.3);
+    }
+
+    /* 打字机光标动画 */
+    @keyframes pulse-cursor {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+    .cursor-pulse {
+      animation: pulse-cursor 1s ease-in-out infinite;
+    }
+
+    /* 拖拽区域动画 */
+    .drop-zone-active {
+      background: rgba(96, 165, 250, 0.1);
+      border-color: #60a5fa;
+    }
+
+    /* 文件卡片悬停效果 */
+    .file-card:hover .delete-btn {
+      opacity: 1;
+    }
+
+    /* 选项卡切换 */
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+  <!-- 顶部导航 -->
+  <nav class="bg-black/40 border-b border-white/10 px-6 py-3">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <h1 class="text-lg font-semibold">Agent Builder</h1>
+        <span class="text-xs text-gray-500 bg-white/5 px-2 py-1 rounded">UX 高保真原型</span>
+      </div>
+      <div class="flex items-center gap-2 text-xs text-gray-400">
+        <span>迭代: iteration-2603111255</span>
+        <span class="text-gray-600">|</span>
+        <span>日期: 2026-03-11</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 主内容区 -->
+  <main class="p-6">
+    <!-- 标题 -->
+    <div class="mb-6">
+      <h2 class="text-2xl font-bold mb-2">文件上传功能 - 高保真原型</h2>
+      <p class="text-gray-400 text-sm">调试对话窗口中的文件上传组件交互演示</p>
+    </div>
+
+    <!-- 选项卡 -->
+    <div class="flex gap-2 mb-6 border-b border-white/10 pb-4">
+      <button onclick="switchTab('state1')" class="tab-btn px-4 py-2 text-sm rounded-lg bg-blue-500 text-white" data-tab="state1">
+        状态1: 空闲
+      </button>
+      <button onclick="switchTab('state2')" class="tab-btn px-4 py-2 text-sm rounded-lg bg-white/5 text-gray-400 hover:bg-white/10" data-tab="state2">
+        状态2: 有文件
+      </button>
+      <button onclick="switchTab('state3')" class="tab-btn px-4 py-2 text-sm rounded-lg bg-white/5 text-gray-400 hover:bg-white/10" data-tab="state3">
+        状态3: 拖拽中
+      </button>
+      <button onclick="switchTab('state4')" class="tab-btn px-4 py-2 text-sm rounded-lg bg-white/5 text-gray-400 hover:bg-white/10" data-tab="state4">
+        状态4: 上传中
+      </button>
+      <button onclick="switchTab('state5')" class="tab-btn px-4 py-2 text-sm rounded-lg bg-white/5 text-gray-400 hover:bg-white/10" data-tab="state5">
+        状态5: 错误提示
+      </button>
+      <button onclick="switchTab('state6')" class="tab-btn px-4 py-2 text-sm rounded-lg bg-white/5 text-gray-400 hover:bg-white/10" data-tab="state6">
+        状态6: 消息气泡
+      </button>
+    </div>
+
+    <!-- 原型展示区 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- 左侧: 原型预览 -->
+      <div class="bg-black/40 rounded-xl border border-white/10 overflow-hidden">
+        <div class="bg-white/5 px-4 py-2 border-b border-white/10 flex items-center gap-2">
+          <div class="w-3 h-3 rounded-full bg-red-500/50"></div>
+          <div class="w-3 h-3 rounded-full bg-yellow-500/50"></div>
+          <div class="w-3 h-3 rounded-full bg-green-500/50"></div>
+          <span class="text-xs text-gray-500 ml-2">调试对话 - 代码助手</span>
+        </div>
+
+        <div class="h-[500px] flex flex-col">
+          <!-- 消息区域 -->
+          <div class="flex-1 overflow-auto p-4 space-y-3">
+            <!-- 欢迎消息 -->
+            <div class="text-center py-8">
+              <p class="text-gray-500 text-sm">发送消息测试智能体</p>
+              <p class="text-gray-600 text-xs mt-2">支持上传 PDF、DOCX、XLSX、TXT 等文件</p>
+            </div>
+          </div>
+
+          <!-- 输入区域 - 根据选项卡切换不同状态 -->
+          <div id="input-area" class="p-4 border-t border-white/10">
+            <!-- ==================== 状态1: 空闲 ==================== -->
+            <div id="state1-content" class="tab-content active">
+              <div class="flex gap-2">
+                <!-- 上传按钮 -->
+                <button type="button" class="p-2 rounded-lg text-gray-400 hover:text-blue-400 transition-colors" title="上传文件">
+                  <i data-lucide="paperclip" class="w-5 h-5"></i>
+                </button>
+                <!-- 输入框 -->
+                <input type="text" placeholder="输入消息..." class="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <!-- 发送按钮 -->
+                <button type="button" class="px-4 py-2 bg-blue-500/50 text-white rounded-lg text-sm font-medium cursor-not-allowed" disabled>
+                  发送
+                </button>
+              </div>
+              <p class="text-xs text-gray-600 mt-2 flex items-center gap-1">
+                <i data-lucide="info" class="w-3 h-3"></i>
+                点击左侧回形针图标上传文件，或直接拖拽文件到此区域
+              </p>
+            </div>
+
+            <!-- ==================== 状态2: 有文件 ==================== -->
+            <div id="state2-content" class="tab-content">
+              <!-- 文件预览区 -->
+              <div class="mb-2 p-3 bg-white/5 border border-white/10 rounded-lg">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <i data-lucide="paperclip" class="w-4 h-4 text-blue-400"></i>
+                    <span class="text-xs text-gray-400">待发送文件 (3)</span>
+                  </div>
+                  <button type="button" class="text-xs text-blue-400 hover:text-blue-300">
+                    添加更多
+                  </button>
+                </div>
+                <!-- 文件列表 -->
+                <div class="flex gap-2 overflow-x-auto pb-1">
+                  <!-- PDF 文件 -->
+                  <div class="file-card flex-shrink-0 w-16 h-20 bg-white/5 border border-white/10 rounded-lg p-1.5 relative flex flex-col items-center justify-center group hover:bg-white/10 transition-colors cursor-pointer">
+                    <button type="button" class="delete-btn absolute -top-1 -right-1 w-4 h-4 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 transition-opacity">
+                      <i data-lucide="x" class="w-2.5 h-2.5"></i>
+                    </button>
+                    <i data-lucide="file-text" class="w-6 h-6 text-red-400"></i>
+                    <span class="text-[8px] text-gray-300 truncate max-w-full mt-1 text-center">report.pdf</span>
+                    <span class="text-[7px] text-gray-500">2.3MB</span>
+                  </div>
+                  <!-- Excel 文件 -->
+                  <div class="file-card flex-shrink-0 w-16 h-20 bg-white/5 border border-white/10 rounded-lg p-1.5 relative flex flex-col items-center justify-center group hover:bg-white/10 transition-colors cursor-pointer">
+                    <button type="button" class="delete-btn absolute -top-1 -right-1 w-4 h-4 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 transition-opacity">
+                      <i data-lucide="x" class="w-2.5 h-2.5"></i>
+                    </button>
+                    <i data-lucide="file-spreadsheet" class="w-6 h-6 text-green-400"></i>
+                    <span class="text-[8px] text-gray-300 truncate max-w-full mt-1 text-center">data.xlsx</span>
+                    <span class="text-[7px] text-gray-500">156KB</span>
+                  </div>
+                  <!-- Word 文件 -->
+                  <div class="file-card flex-shrink-0 w-16 h-20 bg-white/5 border border-white/10 rounded-lg p-1.5 relative flex flex-col items-center justify-center group hover:bg-white/10 transition-colors cursor-pointer">
+                    <button type="button" class="delete-btn absolute -top-1 -right-1 w-4 h-4 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 transition-opacity">
+                      <i data-lucide="x" class="w-2.5 h-2.5"></i>
+                    </button>
+                    <i data-lucide="file-text" class="w-6 h-6 text-blue-400"></i>
+                    <span class="text-[8px] text-gray-300 truncate max-w-full mt-1 text-center">notes.docx</span>
+                    <span class="text-[7px] text-gray-500">89KB</span>
+                  </div>
+                </div>
+              </div>
+              <!-- 输入行 -->
+              <div class="flex gap-2">
+                <button type="button" class="p-2 rounded-lg text-blue-400 transition-colors" title="上传文件">
+                  <i data-lucide="paperclip" class="w-5 h-5"></i>
+                </button>
+                <input type="text" placeholder="输入消息..." value="请帮我分析这些文件" class="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="button" class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors">
+                  发送
+                </button>
+              </div>
+            </div>
+
+            <!-- ==================== 状态3: 拖拽中 ==================== -->
+            <div id="state3-content" class="tab-content">
+              <!-- 拖拽遮罩 -->
+              <div class="relative">
+                <div class="absolute inset-0 z-10 flex items-center justify-center bg-black/50 border-2 border-dashed border-blue-400 rounded-lg">
+                  <div class="text-center">
+                    <i data-lucide="paperclip" class="w-8 h-8 text-blue-400 mx-auto mb-2"></i>
+                    <span class="text-sm text-blue-400">拖放文件到此处上传</span>
+                    <p class="text-xs text-gray-500 mt-1">支持 PDF、DOCX、XLSX、TXT、CSV、JSON</p>
+                  </div>
+                </div>
+                <!-- 背景输入区 -->
+                <div class="flex gap-2 opacity-30">
+                  <button type="button" class="p-2 rounded-lg text-gray-400">
+                    <i data-lucide="paperclip" class="w-5 h-5"></i>
+                  </button>
+                  <input type="text" placeholder="输入消息..." class="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
+                  <button type="button" class="px-4 py-2 bg-blue-500/50 text-white rounded-lg text-sm" disabled>
+                    发送
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- ==================== 状态4: 上传中 ==================== -->
+            <div id="state4-content" class="tab-content">
+              <!-- 上传进度 -->
+              <div class="mb-2 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <div class="flex items-center gap-2 mb-2">
+                  <i data-lucide="upload" class="w-4 h-4 text-blue-400 animate-pulse"></i>
+                  <span class="text-xs text-blue-400">正在上传文件...</span>
+                </div>
+                <div class="w-full bg-white/10 rounded-full h-1.5">
+                  <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" style="width: 65%"></div>
+                </div>
+                <div class="flex justify-between mt-1">
+                  <span class="text-[10px] text-gray-500">report.pdf (2.3MB)</span>
+                  <span class="text-[10px] text-blue-400">65%</span>
+                </div>
+              </div>
+              <!-- 禁用的输入区 -->
+              <div class="flex gap-2">
+                <button type="button" class="p-2 rounded-lg text-gray-400 opacity-50 cursor-not-allowed" disabled>
+                  <i data-lucide="paperclip" class="w-5 h-5"></i>
+                </button>
+                <input type="text" placeholder="上传中..." value="请帮我分析这个PDF文件" class="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white opacity-50" disabled>
+                <button type="button" class="px-4 py-2 bg-blue-500/50 text-white rounded-lg text-sm cursor-not-allowed" disabled>
+                  发送
+                </button>
+              </div>
+            </div>
+
+            <!-- ==================== 状态5: 错误提示 ==================== -->
+            <div id="state5-content" class="tab-content">
+              <!-- 错误提示 -->
+              <div class="mb-2 p-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg text-xs">
+                <div class="flex items-start gap-2">
+                  <span>⚠️</span>
+                  <div class="flex-1">
+                    <p class="font-medium">video.mp4: 不支持的文件类型</p>
+                    <p class="text-red-400/70 mt-1">仅支持 PDF、DOCX、XLSX、TXT、CSV、JSON、图片文件</p>
+                  </div>
+                  <button type="button" class="text-red-400 hover:text-red-300">
+                    <i data-lucide="x" class="w-3 h-3"></i>
+                  </button>
+                </div>
+              </div>
+              <!-- 文件预览区 (有有效文件) -->
+              <div class="mb-2 p-3 bg-white/5 border border-white/10 rounded-lg">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <i data-lucide="paperclip" class="w-4 h-4 text-blue-400"></i>
+                    <span class="text-xs text-gray-400">待发送文件 (1)</span>
+                  </div>
+                  <button type="button" class="text-xs text-blue-400 hover:text-blue-300">
+                    添加更多
+                  </button>
+                </div>
+                <div class="flex gap-2 overflow-x-auto pb-1">
+                  <div class="file-card flex-shrink-0 w-16 h-20 bg-white/5 border border-white/10 rounded-lg p-1.5 relative flex flex-col items-center justify-center group hover:bg-white/10 transition-colors">
+                    <button type="button" class="delete-btn absolute -top-1 -right-1 w-4 h-4 bg-red-500/80 hover:bg-red-500 rounded-full flex items-center justify-center text-white opacity-0 transition-opacity">
+                      <i data-lucide="x" class="w-2.5 h-2.5"></i>
+                    </button>
+                    <i data-lucide="file-text" class="w-6 h-6 text-red-400"></i>
+                    <span class="text-[8px] text-gray-300 truncate max-w-full mt-1 text-center">report.pdf</span>
+                    <span class="text-[7px] text-gray-500">2.3MB</span>
+                  </div>
+                </div>
+              </div>
+              <!-- 输入行 -->
+              <div class="flex gap-2">
+                <button type="button" class="p-2 rounded-lg text-blue-400 transition-colors">
+                  <i data-lucide="paperclip" class="w-5 h-5"></i>
+                </button>
+                <input type="text" placeholder="输入消息..." class="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="button" class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors">
+                  发送
+                </button>
+              </div>
+            </div>
+
+            <!-- ==================== 状态6: 消息气泡 ==================== -->
+            <div id="state6-content" class="tab-content">
+              <!-- 这里只展示输入区，消息在上面的消息区域 -->
+              <div class="flex gap-2">
+                <button type="button" class="p-2 rounded-lg text-gray-400 hover:text-blue-400 transition-colors">
+                  <i data-lucide="paperclip" class="w-5 h-5"></i>
+                </button>
+                <input type="text" placeholder="输入消息..." class="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="button" class="px-4 py-2 bg-blue-500/50 text-white rounded-lg text-sm cursor-not-allowed" disabled>
+                  发送
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧: 状态6的消息展示 -->
+      <div id="state6-messages" class="bg-black/40 rounded-xl border border-white/10 overflow-hidden hidden">
+        <div class="bg-white/5 px-4 py-2 border-b border-white/10">
+          <span class="text-xs text-gray-400">用户消息气泡 - 含文件附件</span>
+        </div>
+        <div class="p-4 space-y-4">
+          <!-- 用户消息气泡 -->
+          <div class="flex justify-end">
+            <div class="max-w-[85%] bg-blue-500 text-white rounded-2xl rounded-br-md px-4 py-2.5 text-sm">
+              <p>请帮我分析这个PDF文件的内容</p>
+              <!-- 文件附件区域 -->
+              <div class="mt-2 pt-2 border-t border-white/20 space-y-1">
+                <div class="flex items-center gap-2 text-xs bg-white/10 rounded px-2 py-1">
+                  <i data-lucide="file-text" class="w-3 h-3 text-red-300"></i>
+                  <span class="truncate max-w-[120px]">report.pdf</span>
+                  <span class="text-white/60">2.3MB</span>
+                </div>
+                <div class="flex items-center gap-2 text-xs bg-white/10 rounded px-2 py-1">
+                  <i data-lucide="file-spreadsheet" class="w-3 h-3 text-green-300"></i>
+                  <span class="truncate max-w-[120px]">data.xlsx</span>
+                  <span class="text-white/60">156KB</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI 响应 -->
+          <div class="flex justify-start">
+            <div class="max-w-[85%] bg-white/10 text-gray-300 rounded-2xl rounded-bl-md px-4 py-2.5 text-sm">
+              <div class="border-b border-white/10 pb-2 mb-2">
+                <div class="flex items-center gap-2 text-xs text-gray-400">
+                  <i data-lucide="lightbulb" class="w-3 h-3 text-yellow-500"></i>
+                  <span>思考过程</span>
+                  <span class="inline-block w-1.5 h-3 bg-yellow-500 ml-0.5 cursor-pulse"></span>
+                </div>
+                <p class="text-xs text-gray-500 italic mt-1">正在分析上传的文件...</p>
+              </div>
+              <p>好的，我来帮您分析这些文件。让我先读取文件内容<span class="inline-block w-1.5 h-4 bg-emerald-400 ml-0.5 cursor-pulse align-middle"></span></p>
+            </div>
+          </div>
+
+          <!-- 设计说明 -->
+          <div class="mt-6 p-3 bg-white/5 border border-white/10 rounded-lg">
+            <h4 class="text-xs font-medium text-gray-300 mb-2">消息气泡设计要点</h4>
+            <ul class="text-xs text-gray-500 space-y-1">
+              <li>- 用户消息: 蓝色背景 (bg-blue-500)</li>
+              <li>- 文件附件: 分隔线下方显示</li>
+              <li>- 文件图标: 根据类型着色</li>
+              <li>- 文件大小: text-white/60</li>
+              <li>- AI 响应: 半透明白色背景</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设计规范说明 -->
+    <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <!-- 颜色规范 -->
+      <div class="bg-black/40 rounded-xl border border-white/10 p-4">
+        <h3 class="text-sm font-medium mb-3 flex items-center gap-2">
+          <i data-lucide="palette" class="w-4 h-4 text-purple-400"></i>
+          颜色规范
+        </h3>
+        <div class="space-y-2 text-xs">
+          <div class="flex items-center gap-2">
+            <div class="w-4 h-4 rounded bg-red-400"></div>
+            <span class="text-gray-400">PDF 文档</span>
+            <code class="text-gray-500 text-[10px]">#f87171</code>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="w-4 h-4 rounded bg-blue-400"></div>
+            <span class="text-gray-400">Word 文档</span>
+            <code class="text-gray-500 text-[10px]">#60a5fa</code>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="w-4 h-4 rounded bg-green-400"></div>
+            <span class="text-gray-400">Excel 表格</span>
+            <code class="text-gray-500 text-[10px]">#4ade80</code>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="w-4 h-4 rounded bg-purple-400"></div>
+            <span class="text-gray-400">图片文件</span>
+            <code class="text-gray-500 text-[10px]">#c084fc</code>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="w-4 h-4 rounded bg-gray-400"></div>
+            <span class="text-gray-400">通用文件</span>
+            <code class="text-gray-500 text-[10px]">#9ca3af</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- 尺寸规范 -->
+      <div class="bg-black/40 rounded-xl border border-white/10 p-4">
+        <h3 class="text-sm font-medium mb-3 flex items-center gap-2">
+          <i data-lucide="ruler" class="w-4 h-4 text-blue-400"></i>
+          尺寸规范
+        </h3>
+        <div class="space-y-2 text-xs text-gray-400">
+          <div class="flex justify-between">
+            <span>文件卡片宽度</span>
+            <code class="text-gray-500">64px (w-16)</code>
+          </div>
+          <div class="flex justify-between">
+            <span>文件卡片高度</span>
+            <code class="text-gray-500">80px (h-20)</code>
+          </div>
+          <div class="flex justify-between">
+            <span>文件图标大小</span>
+            <code class="text-gray-500">24px (w-6 h-6)</code>
+          </div>
+          <div class="flex justify-between">
+            <span>删除按钮大小</span>
+            <code class="text-gray-500">16px (w-4 h-4)</code>
+          </div>
+          <div class="flex justify-between">
+            <span>上传按钮图标</span>
+            <code class="text-gray-500">20px (w-5 h-5)</code>
+          </div>
+          <div class="flex justify-between">
+            <span>圆角</span>
+            <code class="text-gray-500">8px (rounded-lg)</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- 交互规范 -->
+      <div class="bg-black/40 rounded-xl border border-white/10 p-4">
+        <h3 class="text-sm font-medium mb-3 flex items-center gap-2">
+          <i data-lucide="mouse-pointer-click" class="w-4 h-4 text-green-400"></i>
+          交互规范
+        </h3>
+        <div class="space-y-2 text-xs text-gray-400">
+          <div class="flex items-start gap-2">
+            <i data-lucide="check" class="w-3 h-3 text-green-400 mt-0.5"></i>
+            <span>悬停显示删除按钮</span>
+          </div>
+          <div class="flex items-start gap-2">
+            <i data-lucide="check" class="w-3 h-3 text-green-400 mt-0.5"></i>
+            <span>支持拖拽上传</span>
+          </div>
+          <div class="flex items-start gap-2">
+            <i data-lucide="check" class="w-3 h-3 text-green-400 mt-0.5"></i>
+            <span>文件预览区可滚动</span>
+          </div>
+          <div class="flex items-start gap-2">
+            <i data-lucide="check" class="w-3 h-3 text-green-400 mt-0.5"></i>
+            <span>上传中禁用所有操作</span>
+          </div>
+          <div class="flex items-start gap-2">
+            <i data-lucide="check" class="w-3 h-3 text-green-400 mt-0.5"></i>
+            <span>错误提示可关闭</span>
+          </div>
+          <div class="flex items-start gap-2">
+            <i data-lucide="check" class="w-3 h-3 text-green-400 mt-0.5"></i>
+            <span>最大 3 个文件/次</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 文件类型支持 -->
+    <div class="mt-4 bg-black/40 rounded-xl border border-white/10 p-4">
+      <h3 class="text-sm font-medium mb-3 flex items-center gap-2">
+        <i data-lucide="file-type" class="w-4 h-4 text-yellow-400"></i>
+        支持的文件类型
+      </h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div class="flex items-center gap-2 p-2 bg-white/5 rounded-lg">
+          <i data-lucide="file-text" class="w-4 h-4 text-red-400"></i>
+          <div>
+            <p class="text-gray-300">PDF 文档</p>
+            <p class="text-gray-500 text-[10px]">.pdf</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 p-2 bg-white/5 rounded-lg">
+          <i data-lucide="file-text" class="w-4 h-4 text-blue-400"></i>
+          <div>
+            <p class="text-gray-300">Word 文档</p>
+            <p class="text-gray-500 text-[10px]">.doc, .docx</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 p-2 bg-white/5 rounded-lg">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4 text-green-400"></i>
+          <div>
+            <p class="text-gray-300">Excel 表格</p>
+            <p class="text-gray-500 text-[10px]">.xls, .xlsx</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 p-2 bg-white/5 rounded-lg">
+          <i data-lucide="file" class="w-4 h-4 text-gray-400"></i>
+          <div>
+            <p class="text-gray-300">文本文件</p>
+            <p class="text-gray-500 text-[10px]">.txt, .csv, .json</p>
+          </div>
+        </div>
+      </div>
+      <div class="mt-3 flex items-center gap-4 text-xs text-gray-500">
+        <span class="flex items-center gap-1">
+          <i data-lucide="hard-drive" class="w-3 h-3"></i>
+          单文件最大: 100MB
+        </span>
+        <span class="flex items-center gap-1">
+          <i data-lucide="files" class="w-3 h-3"></i>
+          单次最多: 3 个文件
+        </span>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // 初始化 Lucide 图标
+    lucide.createIcons();
+
+    // 选项卡切换
+    function switchTab(tabId) {
+      // 更新按钮样式
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        if (btn.dataset.tab === tabId) {
+          btn.className = 'tab-btn px-4 py-2 text-sm rounded-lg bg-blue-500 text-white';
+        } else {
+          btn.className = 'tab-btn px-4 py-2 text-sm rounded-lg bg-white/5 text-gray-400 hover:bg-white/10';
+        }
+      });
+
+      // 切换内容
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+      });
+      document.getElementById(`${tabId}-content`).classList.add('active');
+
+      // 状态6时显示消息区域
+      const messagesArea = document.getElementById('state6-messages');
+      if (tabId === 'state6') {
+        messagesArea.classList.remove('hidden');
+      } else {
+        messagesArea.classList.add('hidden');
+      }
+
+      // 重新渲染图标
+      lucide.createIcons();
+    }
+
+    // 文件卡片悬停效果演示
+    document.querySelectorAll('.file-card').forEach(card => {
+      card.addEventListener('mouseenter', () => {
+        const deleteBtn = card.querySelector('.delete-btn');
+        if (deleteBtn) {
+          deleteBtn.style.opacity = '1';
+        }
+      });
+      card.addEventListener('mouseleave', () => {
+        const deleteBtn = card.querySelector('.delete-btn');
+        if (deleteBtn) {
+          deleteBtn.style.opacity = '0';
+        }
+      });
+    });
+  </script>
+</body>
+</html>

@@ -59,7 +59,7 @@ export function ConversationDrawer({
     if (!searchQuery.trim()) return conversations;
     return conversations.filter((conv) => {
       const preview = conv.preview || "";
-      const title = conv.title.toLowerCase();
+      const title = (conv.title || "").toLowerCase();
       return preview.toLowerCase().includes(searchQuery.toLowerCase()) ||
              title.includes(searchQuery.toLowerCase());
     });

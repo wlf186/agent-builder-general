@@ -75,3 +75,9 @@ bug/
 
 # Misc
 .claude/
+
+# Test Data
+test/
+
+# Conda environments
+environments/

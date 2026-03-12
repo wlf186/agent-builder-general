@@ -4,7 +4,7 @@ Agent管理器 - 管理多个Agent实例
 import json
 import asyncio
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, TYPE_CHECKING
 from datetime import datetime
 
 from .models import AgentConfig, MCPConfig
@@ -14,15 +14,27 @@ from .mcp_registry import MCPServiceRegistry
 from .skill_registry import SkillRegistry
 from .model_service_registry import ModelServiceRegistry
 
+if TYPE_CHECKING:
+    from .execution_engine import ExecutionEngine
+
 
 class AgentInstance:
     """Agent实例"""
-    def __init__(self, config: AgentConfig, mcp_registry: MCPServiceRegistry = None, skill_registry: SkillRegistry = None, skills_dir: Path = None, model_service_registry: ModelServiceRegistry = None):
+    def __init__(
+        self,
+        config: AgentConfig,
+        mcp_registry: MCPServiceRegistry = None,
+        skill_registry: SkillRegistry = None,
+        skills_dir: Path = None,
+        model_service_registry: ModelServiceRegistry = None,
+        execution_engine: Optional["ExecutionEngine"] = None
+    ):
         self.config = config
         self.mcp_registry = mcp_registry
         self.skill_registry = skill_registry
         self.skills_dir = skills_dir
         self.model_service_registry = model_service_registry
+        self.execution_engine = execution_engine
         self.mcp_manager: Optional[MCPManager] = None
         self.engine: Optional[AgentEngine] = None
         self.created_at = datetime.now()
@@ -61,7 +73,8 @@ class AgentInstance:
                 self.mcp_manager,
                 self.skill_registry,
                 self.skills_dir,
-                self.model_service_registry
+                self.model_service_registry,
+                execution_engine=self.execution_engine
             )
             self.engine.build_graph()
 
@@ -126,8 +139,14 @@ class AgentInstance:
 
         return response
 
-    async def chat_stream(self, message: str, history: List[Dict] = None):
-        """流式对话 - 返回包含 thinking、tool_call、tool_result、content 的事件"""
+    async def chat_stream(self, message: str, history: List[Dict] = None, file_context: str = ""):
+        """流式对话 - 返回包含 thinking、tool_call、tool_result、content 的事件
+
+        Args:
+            message: 用户消息
+            history: 对话历史
+            file_context: 文件上下文信息（包含用户上传文件的元数据）
+        """
         if not self.engine:
             await self.initialize()
 
@@ -143,7 +162,7 @@ class AgentInstance:
             chat_history = chat_history[-(memory_limit * 2):]
 
         full_response = ""
-        async for event in self.engine.stream(message, chat_history):
+        async for event in self.engine.stream(message, chat_history, file_context):
             # event 是一个字典，包含 type 和其他字段
             if isinstance(event, dict):
                 if event.get("type") == "content":
@@ -174,13 +193,22 @@ class AgentInstance:
 
 class AgentManager:
     """Agent管理器"""
-    def __init__(self, data_dir: Path, mcp_registry=None, skill_registry=None, skills_dir=None, model_service_registry=None):
+    def __init__(
+        self,
+        data_dir: Path,
+        mcp_registry=None,
+        skill_registry=None,
+        skills_dir=None,
+        model_service_registry=None,
+        execution_engine=None
+    ):
         self.data_dir = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.mcp_registry = mcp_registry
         self.skill_registry = skill_registry
         self.skills_dir = skills_dir or (Path(__file__).parent.parent / "skills")
         self.model_service_registry = model_service_registry
+        self.execution_engine = execution_engine
         self.agents: Dict[str, AgentInstance] = {}
         self.configs: Dict[str, AgentConfig] = {}
         self._load_configs()
@@ -265,7 +293,14 @@ class AgentManager:
                 del self.agents[name]
 
             # 创建新实例
-            instance = AgentInstance(config, self.mcp_registry, self.skill_registry, self.skills_dir, self.model_service_registry)
+            instance = AgentInstance(
+                config,
+                self.mcp_registry,
+                self.skill_registry,
+                self.skills_dir,
+                self.model_service_registry,
+                execution_engine=self.execution_engine
+            )
             if await instance.initialize():
                 self.agents[name] = instance
                 return instance
@@ -275,7 +310,14 @@ class AgentManager:
         if name in self.agents:
             return self.agents[name]
 
-        instance = AgentInstance(config, self.mcp_registry, self.skill_registry, self.skills_dir, self.model_service_registry)
+        instance = AgentInstance(
+            config,
+            self.mcp_registry,
+            self.skill_registry,
+            self.skills_dir,
+            self.model_service_registry,
+            execution_engine=self.execution_engine
+        )
         if await instance.initialize():
             self.agents[name] = instance
             return instance

@@ -6,7 +6,7 @@ import asyncio
 import json
 import re
 from pathlib import Path
-from typing import TypedDict, Annotated, Sequence, Optional, Dict, Any, List
+from typing import TypedDict, Annotated, Sequence, Optional, Dict, Any, List, TYPE_CHECKING
 from operator import add
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
@@ -19,6 +19,9 @@ from .skill_registry import SkillRegistry
 from .skill_loader import SkillLoader
 from .skill_tool import SkillTool
 from .model_service_registry import ModelServiceRegistry
+
+if TYPE_CHECKING:
+    from .execution_engine import ExecutionEngine
 
 
 class AgentState(TypedDict):
@@ -41,12 +44,21 @@ class AgentState(TypedDict):
 class AgentEngine:
     """Agent引擎 - 支持多种规划模式"""
 
-    def __init__(self, config: AgentConfig, mcp_manager: Optional[MCPManager] = None, skill_registry: Optional[SkillRegistry] = None, skills_dir: Path = None, model_service_registry: Optional[ModelServiceRegistry] = None):
+    def __init__(
+        self,
+        config: AgentConfig,
+        mcp_manager: Optional[MCPManager] = None,
+        skill_registry: Optional[SkillRegistry] = None,
+        skills_dir: Path = None,
+        model_service_registry: Optional[ModelServiceRegistry] = None,
+        execution_engine: Optional["ExecutionEngine"] = None
+    ):
         self.config = config
         self.mcp_manager = mcp_manager
         self.skill_registry = skill_registry
         self.skills_dir = skills_dir or (Path(__file__).parent.parent / "skills")
         self.model_service_registry = model_service_registry
+        self.execution_engine = execution_engine
         self.llm = None
         self.graph = None
         # 初始化 SkillTool 用于按需加载技能
@@ -55,7 +67,9 @@ class AgentEngine:
             self.skill_tool = SkillTool(
                 skill_registry=skill_registry,
                 skills_dir=self.skills_dir,
-                enabled_skills=config.skills
+                enabled_skills=config.skills,
+                execution_engine=execution_engine,
+                agent_name=config.name
             )
         self._setup_llm()
 
@@ -130,6 +144,21 @@ class AgentEngine:
             skill_name = tool_args.get("skill_name") or tool_args.get("skill", "")
             list_files = tool_args.get("list_files", False)
             return await self.skill_tool.execute(skill_name, list_files)
+
+        # 处理 execute_skill 工具（脚本执行）
+        if tool_name == SkillTool.EXECUTE_TOOL_NAME and self.skill_tool:
+            skill_name = tool_args.get("skill_name", "")
+            script_name = tool_args.get("script_name", "main.py")
+            arguments = tool_args.get("arguments", [])
+            input_file_ids = tool_args.get("input_file_ids", [])
+            timeout = tool_args.get("timeout", 60)
+            return await self.skill_tool.execute_script(
+                skill_name=skill_name,
+                script_name=script_name,
+                arguments=arguments,
+                input_file_ids=input_file_ids,
+                timeout=timeout
+            )
 
         if not self.mcp_manager:
             return "错误: MCP管理器未初始化"
@@ -838,7 +867,7 @@ BEST: 编号"""
     # - frontend/src/components/AgentChat.tsx - 前端渲染
     # - frontend/src/app/stream/agents/[name]/chat/route.ts - 流式代理
     # ============================================================================
-    async def stream(self, user_input: str, history: List[Dict] = None):
+    async def stream(self, user_input: str, history: List[Dict] = None, file_context: str = ""):
         """流式运行Agent - 支持返回 thinking、多轮工具调用和最终回答
 
         【流式输出核心方法 - 谨慎修改】
@@ -852,9 +881,19 @@ BEST: 编号"""
         - tool_result: 工具执行结果
         - skill_loading/skill_loaded: 技能加载状态
         - metrics: 性能指标
+
+        Args:
+            user_input: 用户输入
+            history: 对话历史
+            file_context: 文件上下文信息（包含用户上传文件的元数据）
         """
         # 构建系统提示
         system_prompt = self._get_system_prompt()
+
+        # 如果有文件上下文，添加到系统提示词
+        if file_context:
+            system_prompt += file_context
+            system_prompt += "\n\n请优先处理用户上传的文件内容。"
 
         # 构建工具描述
         tools_desc = ""
@@ -873,6 +912,13 @@ BEST: 编号"""
             skill_tool_def = self.skill_tool.get_tool_definition()
             tools_desc += f"\n- {skill_tool_def['name']}: {skill_tool_def['description'].split(chr(10))[0]}"
             tool_names.append(SkillTool.TOOL_NAME)
+
+
+            # 添加 execute_skill 工具（如果有执行引擎且存在可执行技能）
+            execute_tool_def = self.skill_tool.get_execute_tool_definition()
+            if execute_tool_def:
+                tools_desc += f"\n- {execute_tool_def['name']}: {execute_tool_def['description'].split(chr(10))[0]}"
+                tool_names.append(SkillTool.EXECUTE_TOOL_NAME)
 
             # 构建技能加载规则和示例
             skills_list = ", ".join([f'"{name}"' for name in self.skill_tool.enabled_skills[:3]])
@@ -914,8 +960,17 @@ BEST: 编号"""
 用户：如何处理 PDF 文件？
 助手：{{"tool": "load_skill", "arguments": {{"skill_name": "{self.skill_tool.enabled_skills[0] if self.skill_tool.enabled_skills else "技能名"}"}}}}
 
+### 示例4： 执行技能脚本（处理上传文件！）
+用户：读取这个 PDF 文件的内容
+助手：{{"tool": "execute_skill", "arguments": {{"skill_name": "AB-pdf", "input_file_ids": ["文件ID"], "arguments": ["./input/document.pdf"]}}}}
+
 **可用技能**: {skills_list}
 当用户询问与这些技能相关的问题时，**必须先调用 load_skill 工具加载对应技能**！
+
+**处理上传文件**:
+- 用户上传的文件会自动分配 file_id
+- 使用 execute_skill 工具时，将 file_id 传入 input_file_ids 参数
+- 茂本将在 ./input/ 目录中，通过 ./input/文件名 访问
 
 ## 多任务处理规则
 如果用户的请求包含多个独立任务（如"计算X，然后讲个笑话"），你需要：

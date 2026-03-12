@@ -42,7 +42,7 @@ export function ConversationList({
     if (!searchQuery.trim()) return conversations;
     return conversations.filter((conv: Conversation) => {
       const preview = conv.preview || "";
-      const title = conv.title.toLowerCase();
+      const title = (conv.title || "").toLowerCase();
       return (
         title.includes(searchQuery.toLowerCase()) ||
         preview.toLowerCase().includes(searchQuery.toLowerCase())
@@ -61,6 +61,7 @@ export function ConversationList({
 
     // 今天
     const todayConvs = filteredConversations.filter((conv: Conversation) => {
+      if (!conv.updated_at) return false;
       const date = new Date(conv.updated_at);
       return date >= today;
     });
@@ -73,6 +74,7 @@ export function ConversationList({
 
     // 昨天
     const yesterdayConvs = filteredConversations.filter((conv: Conversation) => {
+      if (!conv.updated_at) return false;
       const date = new Date(conv.updated_at);
       return date >= yesterday && date < today;
     });
@@ -85,6 +87,7 @@ export function ConversationList({
 
     // 7天内
     const last7DaysConvs = filteredConversations.filter((conv: Conversation) => {
+      if (!conv.updated_at) return false;
       const date = new Date(conv.updated_at);
       return date >= last7Days && date < yesterday;
     });
@@ -97,6 +100,7 @@ export function ConversationList({
 
     // 更早
     const earlierConvs = filteredConversations.filter((conv: Conversation) => {
+      if (!conv.updated_at) return false;
       const date = new Date(conv.updated_at);
       return date < last7Days;
     });

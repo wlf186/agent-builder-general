@@ -14,7 +14,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 
-from src.models import AgentConfig, LLMProvider, PlanningMode, MCPServiceConfig, MCPConnectionType, MCPAuthType, ModelServiceConfig, ModelProvider
+from src.models import (
+    AgentConfig, LLMProvider, PlanningMode, MCPServiceConfig, MCPConnectionType,
+    MCPAuthType, ModelServiceConfig, ModelProvider,
+    # 新增：环境相关模型
+    AgentEnvironment, EnvironmentStatus, EnvironmentType,
+    FileInfo, ExecutionRecord, ExecutionStatus
+)
 from src.agent_manager import AgentManager
 from src.mcp_registry import MCPServiceRegistry
 from src.mcp_manager import test_mcp_connection
@@ -24,16 +30,41 @@ from src.skill_loader import SkillLoader
 from src.model_service_registry import ModelServiceRegistry
 from src.model_provider_tester import test_model_service_connection
 from src.conversation_manager import ConversationManager
+# 新增：环境、文件、执行管理器
+from src.environment_manager import EnvironmentManager, EnvironmentError
+from src.file_storage_manager import FileStorageManager, FileStorageError
+from src.execution_engine import ExecutionEngine, ExecutionError
 
 
 # 初始化
 DATA_DIR = Path(__file__).parent / "data"
 SKILLS_DIR = Path(__file__).parent / "skills"
+ENVIRONMENTS_DIR = Path(__file__).parent / "environments"
+FILES_DIR = DATA_DIR / "files"
+
+# 确保目录存在
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+ENVIRONMENTS_DIR.mkdir(parents=True, exist_ok=True)
+FILES_DIR.mkdir(parents=True, exist_ok=True)
+
 mcp_registry = MCPServiceRegistry(DATA_DIR)
 skill_registry = SkillRegistry(DATA_DIR, SKILLS_DIR)
 model_service_registry = ModelServiceRegistry(DATA_DIR)
 conversation_manager = ConversationManager(DATA_DIR)
-manager = AgentManager(DATA_DIR, mcp_registry, skill_registry, model_service_registry=model_service_registry)
+
+# 新增：初始化环境、文件、执行管理器（需要在AgentManager之前初始化）
+environment_manager = EnvironmentManager(DATA_DIR, ENVIRONMENTS_DIR)
+file_storage_manager = FileStorageManager(FILES_DIR)
+execution_engine = ExecutionEngine(environment_manager, file_storage_manager, DATA_DIR)
+
+# 初始化 AgentManager，传入 execution_engine
+manager = AgentManager(
+    DATA_DIR,
+    mcp_registry,
+    skill_registry,
+    model_service_registry=model_service_registry,
+    execution_engine=execution_engine
+)
 
 # 注册预置 MCP 服务
 builtin_service_manager = BuiltinServiceManager(mcp_registry)
@@ -202,6 +233,7 @@ class TestModelServiceRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: List[Dict[str, str]] = []  # 对话历史 [{"role": "user/assistant", "content": "..."}]
+    file_ids: List[str] = []  # 上传文件的ID列表
 
 
 class CreateMCPServiceRequest(BaseModel):
@@ -287,6 +319,13 @@ async def create_agent(req: CreateAgentRequest):
     )
 
     if manager.create_agent_config(config):
+        # 自动创建 Conda 环境（异步，不阻塞响应）
+        try:
+            await environment_manager.get_or_create_environment(req.name.strip())
+            print(f"[AGENT] 已为 {req.name} 创建执行环境")
+        except Exception as e:
+            print(f"[AGENT] 创建环境失败（将在首次执行时重试）: {e}")
+
         return {"success": True, "name": req.name}
     else:
         raise HTTPException(status_code=500, detail="创建失败")
@@ -350,6 +389,21 @@ async def update_agent(name: str, req: UpdateAgentRequest):
 async def delete_agent(name: str):
     """删除 Agent"""
     if manager.delete_agent_config(name):
+        # 清理关联资源（环境和文件）
+        try:
+            # 清理 Conda 环境
+            await environment_manager.delete_environment(name)
+            print(f"[AGENT] 已删除 {name} 的执行环境")
+        except Exception as e:
+            print(f"[AGENT] 删除环境失败: {e}")
+
+        try:
+            # 清理上传的文件
+            await file_storage_manager.cleanup_agent_files(name)
+            print(f"[AGENT] 已清理 {name} 的上传文件")
+        except Exception as e:
+            print(f"[AGENT] 清理文件失败: {e}")
+
         return {"success": True}
     else:
         raise HTTPException(status_code=404, detail="Agent不存在")
@@ -417,8 +471,46 @@ async def chat_stream(name: str, req: ChatRequest):
             yield f"data: {json.dumps({'error': '无法加载Agent'}, ensure_ascii=False)}\n\n"
             return
 
+        # 构建文件上下文（增强版，包含 file_id 表格和调用示例）
+        file_context = ""
+        file_ids_list = []
+        if req.file_ids:
+            try:
+                files = await file_storage_manager.list_files(name)
+                matched_files = [f for f in files if f.file_id in req.file_ids]
+                if matched_files:
+                    file_context = "\n\n=== 用户上传的文件 ===\n\n"
+                    file_context += "| file_id | 文件名 | 类型 | 大小 |\n"
+                    file_context += "|---------|--------|------|------|\n"
+                    for f in matched_files:
+                        file_ids_list.append(f.file_id)
+                        size_kb = f.file_size / 1024
+                        file_context += f"| {f.file_id} | {f.filename} | {f.mime_type} | {size_kb:.1f}KB |\n"
+
+                    file_context += "\n**重要提示**:\n"
+                    file_context += "1. 调用 execute_skill 工具时，请使用上述 file_id 作为 input_file_ids 参数\n"
+                    file_context += "2. 文件会被自动放置在脚本的 ./input/ 目录下\n"
+                    file_context += "3. 根据文件类型选择对应的 Skill：PDF 文件用 AB-pdf，Word 文档用 AB-docx\n"
+
+                    # 生成调用示例
+                    if matched_files:
+                        first_file = matched_files[0]
+                        file_id_str = '", "'.join(file_ids_list)
+                        if first_file.mime_type == "application/pdf":
+                            file_context += "\n**调用示例**:\n"
+                            file_context += '```json\n'
+                            file_context += f'{{"tool": "execute_skill", "arguments": {{"skill_name": "AB-pdf", "input_file_ids": ["{file_id_str}"], "arguments": ["./input/{first_file.filename}", "--action", "extract_text"]}}}}\n'
+                            file_context += '```\n'
+                        elif "word" in first_file.mime_type or first_file.filename.endswith('.docx'):
+                            file_context += "\n**调用示例**:\n"
+                            file_context += '```json\n'
+                            file_context += f'{{"tool": "execute_skill", "arguments": {{"skill_name": "AB-docx", "input_file_ids": ["{file_id_str}"], "arguments": ["./input/{first_file.filename}", "--action", "extract_text"]}}}}\n'
+                            file_context += '```\n'
+            except Exception as e:
+                print(f"[WARN] 获取文件信息失败: {e}")
+
         try:
-            async for event in instance.chat_stream(req.message, req.history):
+            async for event in instance.chat_stream(req.message, req.history, file_context):
                 # 记录第一个 token 时间
                 if first_token_time is None and event.get('type') in ['content', 'thinking']:
                     first_token_time = time.time()
@@ -1085,6 +1177,304 @@ async def save_client_logs(log_data: dict):
         return {"success": True, "filename": filename}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ============================================================================
+# 【环境管理 API - 新增】
+# ============================================================================
+
+from fastapi import UploadFile, File
+
+
+class CreateEnvironmentRequest(BaseModel):
+    """创建环境请求"""
+    python_version: str = "3.11"
+
+
+class InstallPackagesRequest(BaseModel):
+    """安装包请求"""
+    packages: List[str]
+
+
+class ExecuteScriptRequest(BaseModel):
+    """执行脚本请求"""
+    skill_name: str
+    script_path: str = "main.py"
+    arguments: List[str] = []
+    input_file_ids: List[str] = []
+    timeout: int = 60
+
+
+@app.post("/api/agents/{name}/environment")
+async def create_environment(name: str, req: CreateEnvironmentRequest):
+    """创建Agent运行环境"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    try:
+        environment = await environment_manager.create_environment(
+            agent_name=name,
+            python_version=req.python_version
+        )
+        return {
+            "success": True,
+            "environment": {
+                "environment_id": environment.environment_id,
+                "agent_name": environment.agent_name,
+                "status": environment.status.value,
+                "python_version": environment.python_version,
+                "created_at": environment.created_at
+            }
+        }
+    except EnvironmentError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/{name}/environment")
+async def get_environment(name: str):
+    """获取Agent环境状态"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    environment = await environment_manager.get_environment_status(name)
+    if not environment:
+        return {"exists": False, "environment": None}
+
+    return {
+        "exists": True,
+        "environment": {
+            "environment_id": environment.environment_id,
+            "agent_name": environment.agent_name,
+            "status": environment.status.value,
+            "python_version": environment.python_version,
+            "packages": environment.packages,
+            "created_at": environment.created_at,
+            "updated_at": environment.updated_at,
+            "error_message": environment.error_message
+        }
+    }
+
+
+@app.delete("/api/agents/{name}/environment")
+async def delete_environment(name: str):
+    """删除Agent运行环境"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    try:
+        success = await environment_manager.delete_environment(name)
+        return {"success": success}
+    except EnvironmentError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/{name}/environment/packages")
+async def install_packages(name: str, req: InstallPackagesRequest):
+    """安装Python包"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    success, message = await environment_manager.install_packages(name, req.packages)
+    if success:
+        return {"success": True, "message": message}
+    else:
+        raise HTTPException(status_code=400, detail=message)
+
+
+@app.get("/api/agents/{name}/environment/packages")
+async def list_packages(name: str):
+    """列出已安装的包"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    packages = await environment_manager.list_packages(name)
+    return {"packages": packages}
+
+
+# ============================================================================
+# 【文件管理 API - 新增】
+# ============================================================================
+
+@app.post("/api/agents/{name}/files")
+async def upload_file(name: str, file: UploadFile = File(...)):
+    """上传文件到Agent存储"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    try:
+        content = await file.read()
+        file_info = await file_storage_manager.upload_file(
+            agent_name=name,
+            file_content=content,
+            filename=file.filename or "unknown",
+            mime_type=file.content_type
+        )
+
+        return {
+            "success": True,
+            "file": {
+                "file_id": file_info.file_id,
+                "filename": file_info.filename,
+                "file_size": file_info.file_size,
+                "mime_type": file_info.mime_type,
+                "uploaded_at": file_info.uploaded_at
+            }
+        }
+    except FileStorageError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/agents/{name}/files")
+async def list_files(name: str):
+    """列出Agent的所有文件"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    files = await file_storage_manager.list_files(name)
+    return {
+        "files": [
+            {
+                "file_id": f.file_id,
+                "filename": f.filename,
+                "file_size": f.file_size,
+                "mime_type": f.mime_type,
+                "uploaded_at": f.uploaded_at
+            }
+            for f in files
+        ]
+    }
+
+
+@app.get("/api/agents/{name}/files/{file_id}")
+async def download_file(name: str, file_id: str):
+    """下载文件"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    file_info = await file_storage_manager.get_file_info(name, file_id)
+    if not file_info:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    file_path = await file_storage_manager.get_file_path(name, file_id)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        path=file_path,
+        filename=file_info.filename,
+        media_type=file_info.mime_type
+    )
+
+
+@app.delete("/api/agents/{name}/files/{file_id}")
+async def delete_file(name: str, file_id: str):
+    """删除文件"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    success = await file_storage_manager.delete_file(name, file_id)
+    if success:
+        return {"success": True}
+    else:
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+
+# ============================================================================
+# 【脚本执行 API - 新增】
+# ============================================================================
+
+@app.post("/api/agents/{name}/execute")
+async def execute_script(name: str, req: ExecuteScriptRequest):
+    """执行Skill脚本"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    # 获取技能路径
+    skill = skill_registry.get_skill(req.skill_name)
+    skill_base_path = None
+    if skill and skill.skill_path:
+        # skill_path 是相对路径，需要转换为绝对路径
+        skill_base_path = str(SKILLS_DIR / skill.skill_path)
+
+    try:
+        record = await execution_engine.execute_script(
+            agent_name=name,
+            skill_name=req.skill_name,
+            script_path=req.script_path,
+            args=req.arguments,
+            input_file_ids=req.input_file_ids,
+            timeout=req.timeout,
+            skill_base_path=skill_base_path
+        )
+
+        return {
+            "success": record.status == ExecutionStatus.SUCCESS,
+            "execution": {
+                "execution_id": record.execution_id,
+                "status": record.status.value,
+                "exit_code": record.exit_code,
+                "stdout": record.stdout,
+                "stderr": record.stderr,
+                "duration_ms": record.duration_ms,
+                "started_at": record.started_at,
+                "finished_at": record.finished_at
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agents/{name}/executions")
+async def list_executions(name: str, limit: int = 50):
+    """列出执行记录"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    records = await execution_engine.list_executions(name, limit)
+    return {
+        "executions": [
+            {
+                "execution_id": r.execution_id,
+                "skill_name": r.skill_name,
+                "script_path": r.script_path,
+                "status": r.status.value,
+                "exit_code": r.exit_code,
+                "duration_ms": r.duration_ms,
+                "created_at": r.created_at,
+                "finished_at": r.finished_at
+            }
+            for r in records
+        ]
+    }
+
+
+@app.get("/api/agents/{name}/executions/{execution_id}")
+async def get_execution(name: str, execution_id: str):
+    """获取执行详情"""
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    record = await execution_engine.get_execution_status(name, execution_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="执行记录不存在")
+
+    return {
+        "execution": {
+            "execution_id": record.execution_id,
+            "skill_name": record.skill_name,
+            "script_path": record.script_path,
+            "arguments": record.arguments,
+            "status": record.status.value,
+            "exit_code": record.exit_code,
+            "stdout": record.stdout,
+            "stderr": record.stderr,
+            "duration_ms": record.duration_ms,
+            "created_at": record.created_at,
+            "started_at": record.started_at,
+            "finished_at": record.finished_at
+        }
+    }
 
 
 if __name__ == "__main__":
