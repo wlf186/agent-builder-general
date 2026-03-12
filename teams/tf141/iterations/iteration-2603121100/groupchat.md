@@ -54,5 +54,25 @@
 - 派发任务给BE：修复skill名称模糊匹配
 - 派发任务给FE：修复setState渲染期间调用问题
 
----
+## 12:25 - 修复任务完成
+- BE完成skill名称模糊匹配修复：
+  - skill_tool.py: 增强`_match_skill_name`方法
+  - 支持：精确匹配 → 规范化匹配 → 前缀匹配 → 包含匹配
+  - 验证："AB-pdf" → "AB-PDF Processing Guide" ✅
+- FE完成setState渲染错误修复：
+  - AgentChat.tsx: 添加`pendingConversationUpdateRef`
+  - 使用useEffect延迟onConversationChange调用
+  - 避免"Cannot update a component while rendering"错误
+- 代码已提交: commit 3ad77e0
 
+## 12:30 - UAT问题验证
+- 验证MCP管理器初始化问题
+- 测试结果：MCP功能正常，calculator工具返回正确结果
+- 结论：该问题为临时性问题（可能当时后端重启中），现已恢复
+
+## 12:35 - 迭代完成
+- 所有Bug修复已完成并验证通过
+- 代码已提交（commit 3ad77e0）
+- UAT临时问题已验证恢复
+
+---
