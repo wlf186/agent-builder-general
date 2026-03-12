@@ -166,6 +166,74 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  // ========== 技能名称规范化 (T017修复) ==========
+  /**
+   * 规范化技能名称为标准格式
+   * - 转小写
+   * - 移除特殊字符前缀（如 "AB-" 前缀）
+   * - 提取核心关键词（如 "ab-pdf-processing-guide" -> "ab-pdf"）
+   */
+  const normalizeSkillName = useCallback((name: string): string => {
+    if (!name) return name;
+    // 转小写
+    let normalized = name.toLowerCase();
+    // 移除空格，替换为连字符
+    normalized = normalized.replace(/\s+/g, '-');
+    // 提取核心关键词（取第一个连字符分隔的部分作为基础）
+    const parts = normalized.split('-');
+    // 通常技能名称格式为 "ab-pdf" 或 "ab-pdf-processing-guide"
+    // 我们取前两个有意义的部分作为规范化名称
+    if (parts.length >= 2) {
+      // 检查是否有常见的技能前缀（如 "ab"）
+      const commonPrefixes = ['ab', 'an', 'example', 'skills'];
+      if (commonPrefixes.includes(parts[0]) && parts[1]) {
+        return `${parts[0]}-${parts[1]}`;
+      }
+    }
+    return normalized;
+  }, []);
+
+  /**
+   * 查找或创建技能状态
+   * 使用规范化名称进行匹配，确保不同格式的名称能指向同一个状态
+   */
+  const findOrCreateSkillState = useCallback((
+    currentStates: SkillExecutionState[],
+    skillName: string,
+    defaultState: Omit<SkillExecutionState, 'skillName'>
+  ): { states: SkillExecutionState[], existingIndex?: number } => {
+    const normalized = normalizeSkillName(skillName);
+
+    // 先尝试精确匹配
+    let existingIndex = currentStates.findIndex(s => s.skillName === skillName);
+
+    // 如果没找到，尝试规范化匹配
+    if (existingIndex === -1) {
+      existingIndex = currentStates.findIndex(s => normalizeSkillName(s.skillName) === normalized);
+    }
+
+    if (existingIndex !== -1) {
+      // 更新现有状态
+      const updatedStates = [...currentStates];
+      updatedStates[existingIndex] = {
+        ...updatedStates[existingIndex],
+        ...defaultState,
+        skillName: updatedStates[existingIndex].skillName  // 保持原有名称
+      };
+      return { states: updatedStates, existingIndex };
+    } else {
+      // 创建新状态
+      const newState: SkillExecutionState = {
+        skillName,
+        ...defaultState
+      };
+      return {
+        states: [...currentStates, newState],
+        existingIndex: undefined
+      };
+    }
+  }, [normalizeSkillName]);
+
   // 【新增】监听 initialMessages 变化，用于加载历史会话
   useEffect(() => {
     // 只有当 initialMessages 不是 undefined 时才更新（允许空数组）
@@ -474,24 +542,13 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                 // T017: 检测 execute_skill 工具调用，更新 Skill 执行状态
                 if (data.name === 'execute_skill' && data.args?.skill_name) {
                   const skillName = data.args.skill_name;
-                  const existingState = streamingSkillStatesRef.current.find(s => s.skillName === skillName);
-
-                  if (existingState) {
-                    // 更新现有状态为执行中
-                    streamingSkillStatesRef.current = streamingSkillStatesRef.current.map(s =>
-                      s.skillName === skillName
-                        ? { ...s, status: 'executing', message: locale === "zh" ? '正在执行...' : 'Executing...' }
-                        : s
-                    );
-                  } else {
-                    // 添加新的执行状态
-                    const newSkillState: SkillExecutionState = {
-                      skillName,
-                      status: 'executing',
-                      message: locale === "zh" ? '正在执行...' : 'Executing...'
-                    };
-                    streamingSkillStatesRef.current = [...streamingSkillStatesRef.current, newSkillState];
-                  }
+                  // 【T017修复】使用规范化名称进行匹配
+                  const result = findOrCreateSkillState(
+                    streamingSkillStatesRef.current,
+                    skillName,
+                    { status: 'executing', message: locale === "zh" ? '正在执行...' : 'Executing...' }
+                  );
+                  streamingSkillStatesRef.current = result.states;
                 }
 
                 setMessages((prev) =>
@@ -504,20 +561,13 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                           skillStates: (() => {
                             if (data.name === 'execute_skill' && data.args?.skill_name) {
                               const skillName = data.args.skill_name;
-                              const existingState = msg.skillStates?.find(s => s.skillName === skillName);
-                              if (existingState) {
-                                return msg.skillStates?.map(s =>
-                                  s.skillName === skillName
-                                    ? { ...s, status: 'executing', message: locale === "zh" ? '正在执行...' : 'Executing...' }
-                                    : s
-                                );
-                              } else {
-                                return [...(msg.skillStates || []), {
-                                  skillName,
-                                  status: 'executing' as const,
-                                  message: locale === "zh" ? '正在执行...' : 'Executing...'
-                                }];
-                              }
+                              // 【T017修复】使用规范化名称进行匹配
+                              const msgResult = findOrCreateSkillState(
+                                msg.skillStates || [],
+                                skillName,
+                                { status: 'executing', message: locale === "zh" ? '正在执行...' : 'Executing...' }
+                              );
+                              return msgResult.states;
                             }
                             return msg.skillStates;
                           })()
@@ -533,12 +583,23 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
 
                 // T017: 检测 execute_skill 工具结果，更新 Skill 执行状态
                 if (toolName === 'execute_skill') {
-                  const isFailed = toolResult?.includes('error') || toolResult?.includes('Error') || toolResult?.includes('失败');
-                  streamingSkillStatesRef.current = streamingSkillStatesRef.current.map(s =>
-                    s.status === 'executing'
-                      ? { ...s, status: isFailed ? 'failed' : 'completed', message: isFailed ? (locale === "zh" ? '执行失败' : 'Failed') : (locale === "zh" ? '执行完成' : 'Completed') }
-                      : s
+                  // 从工具调用参数中提取 skill_name，用于精确匹配
+                  const relatedToolCall = streamingToolCallsRef.current.find(tc =>
+                    tc.name === 'execute_skill' &&
+                    (toolCallId ? tc.call_id === toolCallId : !tc.result)
                   );
+                  const skillName = relatedToolCall?.args?.skill_name;
+
+                  if (skillName) {
+                    // 【T017修复】使用规范化名称进行匹配
+                    const normalized = normalizeSkillName(skillName);
+                    const isFailed = toolResult?.includes('error') || toolResult?.includes('Error') || toolResult?.includes('失败');
+                    streamingSkillStatesRef.current = streamingSkillStatesRef.current.map(s =>
+                      s.skillName === skillName || normalizeSkillName(s.skillName) === normalized
+                        ? { ...s, status: isFailed ? 'failed' : 'completed', message: isFailed ? (locale === "zh" ? '执行失败' : 'Failed') : (locale === "zh" ? '执行完成' : 'Completed') }
+                        : s
+                    );
+                  }
                 }
 
                 streamingToolCallsRef.current = streamingToolCallsRef.current.map(tc => {
@@ -569,11 +630,26 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                           }),
                           // T017: 更新 Skill 执行状态
                           skillStates: toolName === 'execute_skill'
-                            ? msg.skillStates?.map(s =>
-                                s.status === 'executing'
-                                  ? { ...s, status: (toolResult?.includes('error') || toolResult?.includes('Error') || toolResult?.includes('失败')) ? 'failed' : 'completed', message: (toolResult?.includes('error') || toolResult?.includes('Error') || toolResult?.includes('失败')) ? (locale === "zh" ? '执行失败' : 'Failed') : (locale === "zh" ? '执行完成' : 'Completed') }
-                                  : s
-                              )
+                            ? (() => {
+                                // 从工具调用参数中提取 skill_name，用于精确匹配
+                                const relatedToolCall = msg.toolCalls?.find(tc =>
+                                  tc.name === 'execute_skill' &&
+                                  (toolCallId ? tc.call_id === toolCallId : (!tc.result || tc.result === toolResult))
+                                );
+                                const skillName = relatedToolCall?.args?.skill_name;
+
+                                if (skillName) {
+                                  // 【T017修复】使用规范化名称进行匹配
+                                  const normalized = normalizeSkillName(skillName);
+                                  const isFailed = toolResult?.includes('error') || toolResult?.includes('Error') || toolResult?.includes('失败');
+                                  return msg.skillStates?.map(s =>
+                                    s.skillName === skillName || normalizeSkillName(s.skillName) === normalized
+                                      ? { ...s, status: isFailed ? 'failed' : 'completed', message: isFailed ? (locale === "zh" ? '执行失败' : 'Failed') : (locale === "zh" ? '执行完成' : 'Completed') }
+                                      : s
+                                  );
+                                }
+                                return msg.skillStates;
+                              })()
                             : msg.skillStates
                         }
                       : msg
@@ -618,13 +694,13 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                 const skillName = data.skill_name;
                 streamingThinkingRef.current = locale === "zh" ? `正在加载技能: ${skillName}...` : `Loading skill: ${skillName}...`;
 
-                // 更新 Skill 执行状态
-                const newSkillState: SkillExecutionState = {
+                // 【T017修复】使用规范化名称进行匹配，确保不同格式的名称能指向同一个状态
+                const result = findOrCreateSkillState(
+                  streamingSkillStatesRef.current,
                   skillName,
-                  status: 'loading',
-                  message: locale === "zh" ? '正在加载...' : 'Loading...'
-                };
-                streamingSkillStatesRef.current = [...streamingSkillStatesRef.current, newSkillState];
+                  { status: 'loading', message: locale === "zh" ? '正在加载...' : 'Loading...' }
+                );
+                streamingSkillStatesRef.current = result.states;
 
                 setMessages((prev) =>
                   prev.map((msg) =>
@@ -633,7 +709,14 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                           ...msg,
                           thinking: streamingThinkingRef.current,
                           loadingSkill: skillName,
-                          skillStates: [...(msg.skillStates || []), newSkillState]
+                          skillStates: (() => {
+                            const msgResult = findOrCreateSkillState(
+                              msg.skillStates || [],
+                              skillName,
+                              { status: 'loading', message: locale === "zh" ? '正在加载...' : 'Loading...' }
+                            );
+                            return msgResult.states;
+                          })()
                         }
                       : msg
                   )
@@ -643,9 +726,10 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                 const skillName = data.skill_name;
                 const success = data.success;
 
-                // 更新 Skill 执行状态
+                // 【T017修复】使用规范化名称进行匹配，更新 Skill 执行状态
+                const normalized = normalizeSkillName(skillName);
                 streamingSkillStatesRef.current = streamingSkillStatesRef.current.map(s =>
-                  s.skillName === skillName
+                  s.skillName === skillName || normalizeSkillName(s.skillName) === normalized
                     ? { ...s, status: success ? 'completed' : 'failed', message: success ? (locale === "zh" ? '加载完成' : 'Loaded') : (locale === "zh" ? '加载失败' : 'Failed') }
                     : s
                 );
@@ -662,7 +746,7 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                           loadedSkills: [...(msg.loadedSkills || []), ...(success ? [skillName] : [])],
                           loadingSkill: msg.loadingSkill === skillName ? undefined : msg.loadingSkill,
                           skillStates: msg.skillStates?.map(s =>
-                            s.skillName === skillName
+                            s.skillName === skillName || normalizeSkillName(s.skillName) === normalized
                               ? { ...s, status: success ? 'completed' : 'failed', message: success ? (locale === "zh" ? '加载完成' : 'Loaded') : (locale === "zh" ? '加载失败' : 'Failed') }
                               : s
                           ),

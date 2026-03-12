@@ -517,6 +517,33 @@ See `badcase.md` for troubleshooting guidance on streaming issues and debugging 
 - `frontend/src/types/`
 
 **已知问题**:
-- 使用skill后前台左下角可能显示issue错误（待修复）
+- ~~使用skill后前台左下角可能显示issue错误~~ ✅ **已修复** (iteration-2603121500)
 
 **绩效**: Lead B
+
+### iteration-2603121500 (2026-03-12)
+
+**需求**: 修复Skill执行状态显示异常问题
+
+**问题现象**: 使用PDF/DOCX技能时, "技能执行状态"区域同时显示"执行完成"和"执行失败"
+
+**根因分析**:
+1. `skill_loading` 事件使用完整技能名称（如 "AB-PDF Processing Guide"）
+2. `execute_skill` 工具调用使用短名称（如 "ab-pdf"）
+3. 前端使用 `s.status === 'executing'` 匹配所有执行中技能, 而非精确匹配 `skillName`
+4. 导致状态污染, 同一技能出现多个状态条
+
+**修复方案**:
+1. 实现 `normalizeSkillName()` 函数规范化技能名称
+2. 实现 `findOrCreateSkillState()` 函数统一状态管理
+3. 修改 `AgentChat.tsx` 中4处关键事件处理逻辑, 确保状态去重和精确匹配
+
+**修复文件**:
+- `frontend/src/components/AgentChat.tsx` (第616-640行, 641-675行, 477-485行, 504-523行)
+
+**验证结果**:
+- 回归测试 5/5 通过
+- PDF/DOCX技能执行状态只显示一个状态条目
+- 流式输出功能正常
+
+**绩效**: Lead A

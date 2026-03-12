@@ -1,0 +1,75 @@
+{
+  "test_run": "2026-03-12T08:59:43.436273",
+  "iteration": "iteration-2603121500",
+  "tester": "User-representative (TF141)",
+  "results": [
+    {
+      "timestamp": "2026-03-12T08:58:30.804073",
+      "test_name": "PDF文件上传",
+      "status": "PASS",
+      "details": "成功上传测试1.pdf"
+    },
+    {
+      "timestamp": "2026-03-12T08:58:31.604831",
+      "test_name": "PDF消息发送",
+      "status": "PASS",
+      "details": "发送消息: 提取文档的前150字"
+    },
+    {
+      "timestamp": "2026-03-12T08:58:42.249041",
+      "test_name": "PDF技能状态",
+      "status": "FAIL",
+      "details": "显示执行失败，状态: ['技能执行状态\\nAB-PDF Processing Guide\\n正在执行...\\n✗\\nAB-pdf\\n执行失败']"
+    },
+    {
+      "timestamp": "2026-03-12T08:58:44.552687",
+      "test_name": "DOCX文件上传",
+      "status": "PASS",
+      "details": "成功上传测试2.docx"
+    },
+    {
+      "timestamp": "2026-03-12T08:58:45.362369",
+      "test_name": "DOCX消息发送",
+      "status": "PASS",
+      "details": "发送消息: 提取文档的前100字"
+    },
+    {
+      "timestamp": "2026-03-12T08:58:55.523046",
+      "test_name": "DOCX技能状态",
+      "status": "FAIL",
+      "details": "显示执行失败，状态: ['技能执行状态\\n✓\\nAB-DOCX creation, editing, and analysis\\n加载完成\\n✗\\nAB-docx\\n执行失败']"
+    },
+    {
+      "timestamp": "2026-03-12T08:58:57.089973",
+      "test_name": "test001第1轮",
+      "status": "PASS",
+      "details": "发送消息: 你好"
+    },
+    {
+      "timestamp": "2026-03-12T08:59:12.862558",
+      "test_name": "test001第2轮",
+      "status": "PASS",
+      "details": "发送消息: 今天天气怎么样"
+    },
+    {
+      "timestamp": "2026-03-12T08:59:28.172244",
+      "test_name": "test001第3轮",
+      "status": "PASS",
+      "details": "发送消息: 谢谢"
+    }
+  ],
+  "screenshots": [
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/01_pdf_agent_page.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/02_pdf_uploaded.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/03_pdf_message_typed.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/04_pdf_response.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/05_docx_agent_page.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/06_docx_uploaded.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/07_docx_message_typed.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/08_docx_response.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/09_test001_page.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/10_test001_第1轮.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/10_test001_第2轮.png",
+    "/work/agent-builder-general/teams/tf141/iterations/iteration-2603121500/10_test001_第3轮.png"
+  ]
+}
