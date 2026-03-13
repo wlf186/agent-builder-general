@@ -547,3 +547,35 @@ See `badcase.md` for troubleshooting guidance on streaming issues and debugging 
 - 流式输出功能正常
 
 **绩效**: Lead A
+
+### iteration-2603130900 (2026-03-13)
+
+**需求**: 审视当前系统中智能体的skill运行环境模式
+
+**调查结论**:
+1. **当前模式**: 独立Conda虚拟环境
+   - 每个Agent拥有独立的Conda环境 (`environments/env_{agent_name}/`)
+   - Skill依赖自动安装到Agent专属环境
+   - 每次执行使用临时工作目录 (`/tmp/exec_*`)
+
+2. **隔离级别**:
+   - ✅ Python环境完全隔离（独立Conda环境）
+   - ✅ 进程空间隔离
+   - ⚠️ 文件系统部分隔离（临时工作目录）
+   - ❌ 网络无隔离
+   - ❌ 系统资源无限制（无CPU/内存cgroup）
+
+3. **关键特性**:
+   - 懒加载：环境在首次执行时创建（10-30秒开销）
+   - 依赖去重：同一Skill的依赖不会重复安装
+   - 并发控制：每Agent最多3个并发执行
+
+**适用场景**: 可信环境下的单租户场景
+
+**改进建议**:
+- 短期：共享基础环境 + 差异化依赖层
+- 长期：Docker容器替代Conda（多租户场景）
+
+**参与人员**: CTO (A), Backend Dev (B+)
+
+**绩效**: Lead A
