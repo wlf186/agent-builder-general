@@ -508,8 +508,17 @@ async def test_mcp_connection(config: MCPServiceConfig) -> Dict[str, Any]:
     result = {
         "success": False,
         "tools": [],
-        "error": None
+        "error": None,
+        "mcp_available": MCP_AVAILABLE
     }
+
+    # 检查MCP库是否可用（仅针对远程SSE服务）
+    if config.connection_type == MCPConnectionType.SSE and not MCP_AVAILABLE:
+        # 检查是否是本地服务（本地服务使用httpx，不需要MCP库）
+        is_local = config.url and "localhost:20882" in config.url
+        if not is_local:
+            result["error"] = "MCP库未安装，无法连接远程SSE服务。请运行: pip install mcp"
+            return result
 
     try:
         if config.connection_type == MCPConnectionType.SSE:
@@ -535,10 +544,18 @@ async def test_mcp_connection(config: MCPServiceConfig) -> Dict[str, Any]:
                 }
                 for tool in connection.tools
             ]
+            result["tool_count"] = len(connection.tools)
             await connection.disconnect()
         else:
-            result["error"] = "连接失败"
+            # 提供更详细的错误信息
+            if config.connection_type == MCPConnectionType.SSE and not MCP_AVAILABLE:
+                if not (config.url and "localhost:20882" in config.url):
+                    result["error"] = "MCP库未安装，无法连接远程SSE服务。请运行: pip install mcp"
+                else:
+                    result["error"] = "连接失败，请检查服务是否运行"
+            else:
+                result["error"] = "连接失败，请检查配置或网络"
     except Exception as e:
-        result["error"] = str(e)
+        result["error"] = f"连接异常: {str(e)}"
 
     return result

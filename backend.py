@@ -133,7 +133,21 @@ async def lifespan(app):
     print("\n" + "=" * 50)
     print("🚀 Agent Builder 启动中...")
     print("=" * 50)
-    print(f"预置 MCP 服务: {registered_services}")
+
+    # 检查MCP库依赖
+    print("\n📦 检查依赖库...")
+    try:
+        import mcp
+        import importlib.metadata
+        version = importlib.metadata.version("mcp")
+        print(f"  ✓ MCP 库已加载 (版本 {version})")
+    except ImportError:
+        print("  ✗ 警告: MCP 库未安装，远程 MCP 服务将不可用")
+        print("    修复方法: pip install mcp")
+    except Exception:
+        print("  ✓ MCP 库已加载")
+
+    print(f"\n预置 MCP 服务: {registered_services}")
     print("=" * 50 + "\n")
 
     yield  # 应用运行
@@ -763,6 +777,28 @@ async def get_mcp_service_tools(name: str):
         return {"tools": result["tools"]}
     else:
         return {"tools": [], "error": result["error"]}
+
+
+@app.post("/api/mcp-services/{name}/diagnose")
+async def diagnose_mcp_service_endpoint(name: str):
+    """
+    诊断MCP服务连接
+
+    返回分层诊断报告，帮助定位连接问题。
+    包括：配置验证 → DNS解析 → 网络连接 → TLS握手 → MCP协议
+    """
+    # Import at module level to avoid import-time issues
+    import src.mcp_diagnostic as mcp_diag
+
+    service = mcp_registry.get_service(name)
+    if not service:
+        raise HTTPException(status_code=404, detail="服务不存在")
+
+    try:
+        report = await mcp_diag.diagnose_mcp_service(service)
+        return report.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"诊断失败: {str(e)}")
 
 
 # === Skills API ===
@@ -1659,4 +1695,5 @@ async def get_execution(name: str, execution_id: str):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=20881)
+    port = int(os.environ.get("PORT", 20881))
+    uvicorn.run("backend:app", host="0.0.0.0", port=port)

@@ -622,3 +622,46 @@ See `badcase.md` for troubleshooting guidance on streaming issues and debugging 
 **参与人员**: product-manager(A), cto(A), backend-dev(A), frontend-dev(A), tester(B+), project-assistant(B)
 
 **绩效**: Lead A
+
+### iteration-2603131500 (2026-03-13)
+
+**需求**: CoinGecko MCP连接失败问题诊断与修复
+
+**问题现象**: 客户反馈CoinGecko MCP在系统主页测试时显示"连接失败"，且在智能体中配置后无法被正常调用
+
+**关键发现**: CoinGecko MCP服务本身**HEALTHY**（50个工具可用），问题根因是**后端启动环境不一致**（系统Python缺少mcp库）
+
+**核心改动**:
+
+**后端改动**:
+- `backend.py`: 添加MCP库启动检查 + 新增诊断API端点 `/api/mcp-services/{name}/diagnose`
+- `src/mcp_manager.py`: 增强 `test_mcp_connection()` 错误提示，添加 `mcp_available` 字段
+- `start_backend.sh`: 新增启动脚本，确保使用虚拟环境
+
+**前端改动**:
+- `MCPServiceDialog.tsx`: 集成"诊断连接"按钮和状态展示
+- `MCPDiagnosticResult.tsx`: 完整诊断结果组件（分层展示：Config→DNS→Network→TLS→MCP）
+- `iteration-2603131500.spec.ts`: 回归测试用例
+
+**新增文件**:
+- `start_backend.sh` (后端启动脚本)
+- `frontend/src/components/MCPDiagnosticResult.tsx` (诊断结果组件)
+- `frontend/tests/iteration-2603131500.spec.ts` (测试用例)
+- `teams/tf141/iterations/iteration-2603131500/` (迭代文档)
+
+**验证结果**:
+- 诊断API测试 ✅ 通过
+- 前端诊断UI测试 ✅ 通过（修复UI选择器后）
+- test001例行验证 ✅ 3轮对话正常
+- UAT验收 ⚠️ 有条件通过（环境问题需用户修复）
+
+**用户行动项**:
+```bash
+# 使用启动脚本重启后端
+cd /work/agent-builder-general
+bash start_backend.sh
+```
+
+**参与人员**: product-manager(A), cto(A), backend-dev(A), frontend-dev(A), tester(B+), user-representative(B+), project-assistant(A)
+
+**绩效**: Lead A

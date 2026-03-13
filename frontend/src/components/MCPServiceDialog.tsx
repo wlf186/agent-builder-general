@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, Server, Link, Key, Settings } from "lucide-react";
+import { X, Loader2, Server, Link, Key, Settings, Activity, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLocale } from "@/lib/LocaleContext";
+import { MCPDiagnosticResult, diagnoseMCPService, MCPDiagnosticReport } from "@/components/MCPDiagnosticResult";
 
 const API_BASE = "/api";
 
@@ -46,6 +47,12 @@ export function MCPServiceDialog({ isOpen, onClose, onSave, service }: MCPServic
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // MCP诊断相关状态
+  const [showDiagnostic, setShowDiagnostic] = useState(false);
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [diagnosticReport, setDiagnosticReport] = useState<MCPDiagnosticReport | null>(null);
+  const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
 
   useEffect(() => {
     if (service) {
@@ -126,6 +133,37 @@ export function MCPServiceDialog({ isOpen, onClose, onSave, service }: MCPServic
       setIsLoading(false);
     }
   };
+
+  // MCP诊断处理
+  const handleDiagnose = async () => {
+    if (!name.trim()) {
+      setError(locale === "zh" ? "请先输入服务名称" : "Please enter service name first");
+      return;
+    }
+
+    setIsDiagnosing(true);
+    setDiagnosticReport(null);
+    setDiagnosticError(null);
+    setShowDiagnostic(true);
+
+    try {
+      const report = await diagnoseMCPService(name.trim());
+      setDiagnosticReport(report);
+    } catch (err) {
+      setDiagnosticError(err instanceof Error ? err.message : (locale === "zh" ? "诊断失败" : "Diagnosis failed"));
+    } finally {
+      setIsDiagnosing(false);
+    }
+  };
+
+  // 重置诊断状态（对话框关闭时）
+  useEffect(() => {
+    if (!isOpen) {
+      setShowDiagnostic(false);
+      setDiagnosticReport(null);
+      setDiagnosticError(null);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -283,6 +321,76 @@ export function MCPServiceDialog({ isOpen, onClose, onSave, service }: MCPServic
                 </div>
               </div>
 
+              {/* 诊断连接按钮和状态 */}
+              {isEdit && (
+                <div className="pt-2 border-t border-white/5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-gray-400">
+                      <Activity size={14} />
+                      <span>{locale === "zh" ? "连接诊断" : "Connection Diagnostic"}</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDiagnose}
+                      disabled={isDiagnosing}
+                      className="h-8 px-3 text-xs"
+                    >
+                      {isDiagnosing ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin mr-1" />
+                          {locale === "zh" ? "诊断中..." : "Diagnosing..."}
+                        </>
+                      ) : (
+                        <>
+                          <Activity size={14} className="mr-1" />
+                          {locale === "zh" ? "诊断连接" : "Diagnose"}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* 诊断结果摘要 */}
+                  {diagnosticReport && !showDiagnostic && (
+                    <div className={`mt-2 p-2 rounded-lg text-xs flex items-center gap-2 ${
+                      diagnosticReport.overall_status === "healthy"
+                        ? "bg-emerald-500/10 text-emerald-300"
+                        : diagnosticReport.overall_status === "degraded"
+                        ? "bg-amber-500/10 text-amber-300"
+                        : "bg-red-500/10 text-red-300"
+                    }`}>
+                      {diagnosticReport.overall_status === "healthy" ? (
+                        <span className="font-medium">
+                          {locale === "zh" ? "连接正常" : "Connection OK"}
+                        </span>
+                      ) : diagnosticReport.overall_status === "degraded" ? (
+                        <span className="font-medium">
+                          {locale === "zh" ? "服务降级" : "Service Degraded"}
+                        </span>
+                      ) : (
+                        <span className="font-medium">
+                          {locale === "zh" ? "连接失败" : "Connection Failed"}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => setShowDiagnostic(true)}
+                        className="underline hover:no-underline"
+                      >
+                        {locale === "zh" ? "查看详情" : "View Details"}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 诊断错误 */}
+                  {diagnosticError && (
+                    <div className="mt-2 p-2 rounded-lg bg-red-500/10 text-red-300 text-xs flex items-center gap-2">
+                      <AlertCircle size={12} />
+                      <span>{diagnosticError}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {error && (
                 <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm">
                   {error}
@@ -306,6 +414,15 @@ export function MCPServiceDialog({ isOpen, onClose, onSave, service }: MCPServic
           </Card>
         </motion.div>
       </motion.div>
+
+      {/* 诊断结果弹窗 */}
+      <MCPDiagnosticResult
+        isOpen={showDiagnostic}
+        onClose={() => setShowDiagnostic(false)}
+        serviceName={name}
+        report={diagnosticReport}
+        isLoading={isDiagnosing}
+      />
     </AnimatePresence>
   );
 }
