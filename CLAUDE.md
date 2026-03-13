@@ -579,3 +579,46 @@ See `badcase.md` for troubleshooting guidance on streaming issues and debugging 
 **参与人员**: CTO (A), Backend Dev (B+)
 
 **绩效**: Lead A
+
+### iteration-2603131100 (2026-03-13)
+
+**需求**:
+1. 智能体创建体验优化 - 环境初始化进度可视化
+2. 调试对话消息重复Bug修复
+
+**核心改动**:
+
+**需求一：智能体创建体验优化**
+- 新增产品需求规格说明书和技术方案选型报告
+- 新增初始化引导卡片组件 `InitializationGuideCard.tsx`
+- 新增环境就绪通知组件 `EnvironmentReadyNotification.tsx`
+- 新增模拟进度计算器 `frontend/src/lib/progress.ts`
+- 后端API增强：环境状态响应增加进度字段
+
+**需求二：调试对话消息重复Bug**
+- 修复 `AgentChat.tsx` 中 `onConversationChange` 重复调用问题
+- 添加 `lastProcessedConversationRef` 使用 `conversationId + msgCount` 作为唯一标识符去重
+
+**新增文件**:
+- `teams/tf141/iterations/iteration-2603131100/产品需求规格说明书.md`
+- `teams/tf141/iterations/iteration-2603131100/技术方案选型报告.md`
+- `teams/tf141/iterations/iteration-2603131100/系统架构设计文档.md`
+- `teams/tf141/iterations/iteration-2603131100/bugfix-message-duplicate.md`
+- `frontend/src/components/InitializationGuideCard.tsx`
+- `frontend/src/components/EnvironmentReadyNotification.tsx`
+- `frontend/src/lib/progress.ts`
+
+**修改文件**:
+- `frontend/src/components/AgentChat.tsx` (消息重复Bug修复)
+- `backend.py` (环境状态API增强)
+
+**验证结果**:
+- 后端流式输出测试 ✅ 通过
+- 会话创建和保存测试 ✅ 通过
+- 前端UI加载测试 ✅ 通过
+
+**待集成**: 新组件需集成到 `page.tsx`
+
+**参与人员**: product-manager(A), cto(A), backend-dev(A), frontend-dev(A), tester(B+), project-assistant(B)
+
+**绩效**: Lead A

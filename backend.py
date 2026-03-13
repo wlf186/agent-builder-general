@@ -14,6 +14,43 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 
+
+# ============================================================================
+# 辅助函数
+# ============================================================================
+
+def _calculate_mock_progress(elapsed_seconds: float) -> tuple[float, int]:
+    """
+    计算环境创建的模拟进度
+
+    基于观察到的Conda环境创建时间模式：
+    - 0-5秒: 初始化阶段 (0-30%)
+    - 5-15秒: 下载依赖阶段 (30-70%)
+    - 15-30秒: 安装配置阶段 (70-95%)
+    - 超过30秒: 保持95%等待最终完成
+
+    Args:
+        elapsed_seconds: 已经过的时间(秒)
+
+    Returns:
+        (progress, estimated_remaining_ms) - 进度百分比(0-100)和预估剩余时间(毫秒)
+    """
+    if elapsed_seconds < 5:
+        progress = min(30, (elapsed_seconds / 5) * 30)
+        # 估算剩余时间: 假设总时间约30秒
+        remaining = max(0, 30 - elapsed_seconds) * 1000
+    elif elapsed_seconds < 15:
+        progress = 30 + min(40, ((elapsed_seconds - 5) / 10) * 40)
+        remaining = max(0, 30 - elapsed_seconds) * 1000
+    elif elapsed_seconds < 30:
+        progress = 70 + min(25, ((elapsed_seconds - 15) / 15) * 25)
+        remaining = max(0, 35 - elapsed_seconds) * 1000
+    else:
+        progress = min(95, 70 + ((elapsed_seconds - 15) / 15) * 25)
+        remaining = max(5000, (40 - elapsed_seconds) * 1000)  # 至少显示5秒
+
+    return (round(progress, 1), int(remaining))
+
 from src.models import (
     AgentConfig, LLMProvider, PlanningMode, MCPServiceConfig, MCPConnectionType,
     MCPAuthType, ModelServiceConfig, ModelProvider,
@@ -32,6 +69,7 @@ from src.model_provider_tester import test_model_service_connection
 from src.conversation_manager import ConversationManager
 # 新增：环境、文件、执行管理器
 from src.environment_manager import EnvironmentManager, EnvironmentError
+from src.environment_creator import EnvironmentCreator
 from src.file_storage_manager import FileStorageManager, FileStorageError
 from src.execution_engine import ExecutionEngine, ExecutionError
 
@@ -54,6 +92,7 @@ conversation_manager = ConversationManager(DATA_DIR)
 
 # 新增：初始化环境、文件、执行管理器（需要在AgentManager之前初始化）
 environment_manager = EnvironmentManager(DATA_DIR, ENVIRONMENTS_DIR)
+environment_creator = EnvironmentCreator(environment_manager, max_concurrent=3)
 file_storage_manager = FileStorageManager(FILES_DIR)
 execution_engine = ExecutionEngine(environment_manager, file_storage_manager, DATA_DIR)
 
@@ -306,7 +345,11 @@ async def list_agents():
 
 @app.post("/api/agents")
 async def create_agent(req: CreateAgentRequest):
-    """创建新 Agent"""
+    """创建新 Agent - 异步环境创建版本
+
+    创建智能体后立即返回，环境在后台异步创建。
+    前端应轮询 GET /api/agents/{name}/environment 获取环境状态。
+    """
     if not req.name or not req.name.strip():
         raise HTTPException(status_code=400, detail="Agent名称不能为空")
 
@@ -319,14 +362,30 @@ async def create_agent(req: CreateAgentRequest):
     )
 
     if manager.create_agent_config(config):
-        # 自动创建 Conda 环境（异步，不阻塞响应）
-        try:
-            await environment_manager.get_or_create_environment(req.name.strip())
-            print(f"[AGENT] 已为 {req.name} 创建执行环境")
-        except Exception as e:
-            print(f"[AGENT] 创建环境失败（将在首次执行时重试）: {e}")
+        agent_name = req.name.strip()
 
-        return {"success": True, "name": req.name}
+        # 创建初始环境元数据（状态为creating）
+        initial_env = AgentEnvironment(
+            agent_name=agent_name,
+            environment_type=EnvironmentType.CONDA,
+            status=EnvironmentStatus.CREATING,
+            python_version="3.11"
+        )
+        environment_manager._save_metadata(initial_env)
+
+        # 异步启动环境创建任务（不阻塞响应）
+        asyncio.create_task(
+            environment_creator.create(agent_name)
+        )
+
+        print(f"[AGENT] 已创建智能体 {agent_name}，后台环境创建任务已启动")
+
+        # 立即返回
+        return {
+            "success": True,
+            "name": agent_name,
+            "environment_status": "creating"
+        }
     else:
         raise HTTPException(status_code=500, detail="创建失败")
 
@@ -1232,27 +1291,93 @@ async def create_environment(name: str, req: CreateEnvironmentRequest):
 
 @app.get("/api/agents/{name}/environment")
 async def get_environment(name: str):
-    """获取Agent环境状态"""
+    """获取Agent环境状态
+
+    返回环境状态信息，支持后台任务状态查询和进度估算。
+    前端应根据status字段判断：
+    - creating: 环境创建中，禁用skill配置，显示进度条
+    - ready: 环境就绪，可正常使用
+    - error: 环境创建失败，需重试
+
+    当状态为creating时，会返回：
+    - progress: 当前进度(0-100)
+    - estimated_remaining: 预估剩余时间(毫秒)
+    """
     if name not in manager.list_agents():
         raise HTTPException(status_code=404, detail="Agent不存在")
 
     environment = await environment_manager.get_environment_status(name)
-    if not environment:
-        return {"exists": False, "environment": None}
 
-    return {
-        "exists": True,
-        "environment": {
-            "environment_id": environment.environment_id,
-            "agent_name": environment.agent_name,
-            "status": environment.status.value,
-            "python_version": environment.python_version,
-            "packages": environment.packages,
-            "created_at": environment.created_at,
-            "updated_at": environment.updated_at,
-            "error_message": environment.error_message
-        }
+    # 检查是否有进行中的创建任务
+    task_status = await environment_creator.get_task_status(name)
+
+    # 准备基础响应
+    response = {
+        "exists": False,
+        "environment": None,
+        "progress": None,
+        "estimated_remaining": None
     }
+
+    if not environment:
+        # 如果没有环境记录，但有进行中的任务，返回creating状态
+        if task_status == "running":
+            response["exists"] = True
+            response["environment"] = {
+                "agent_name": name,
+                "status": "creating",
+                "environment_type": "conda",
+                "python_version": "3.11",
+                "packages": [],
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "error_message": None
+            }
+            # 计算模拟进度（由于无法获取实际开始时间，使用默认值）
+            progress, remaining = _calculate_mock_progress(5)  # 假设已进行5秒
+            response["progress"] = progress
+            response["estimated_remaining"] = remaining
+        return response
+
+    # 如果有运行中的任务，返回creating状态（即使元数据显示其他状态）
+    is_creating = task_status == "running" or environment.status == EnvironmentStatus.CREATING
+
+    env_dict = {
+        "environment_id": environment.environment_id,
+        "agent_name": environment.agent_name,
+        "status": environment.status.value if not is_creating else "creating",
+        "environment_type": environment.environment_type.value,
+        "python_version": environment.python_version,
+        "packages": environment.packages,
+        "installed_dependencies": environment.installed_dependencies,
+        "created_at": environment.created_at,
+        "updated_at": environment.updated_at,
+        "error_message": environment.error_message
+    }
+
+    response["exists"] = True
+    response["environment"] = env_dict
+
+    # 如果正在创建，计算进度
+    if is_creating:
+        try:
+            from datetime import datetime as dt
+            created_at = dt.fromisoformat(environment.created_at)
+            elapsed = (dt.now() - created_at).total_seconds()
+            progress, remaining = _calculate_mock_progress(elapsed)
+            response["progress"] = progress
+            response["estimated_remaining"] = remaining
+        except Exception:
+            # 如果时间解析失败，使用默认值
+            progress, remaining = _calculate_mock_progress(5)
+            response["progress"] = progress
+            response["estimated_remaining"] = remaining
+    else:
+        # 已完成或失败状态
+        response["progress"] = 100.0 if environment.status == EnvironmentStatus.READY else None
+        response["estimated_remaining"] = 0 if environment.status == EnvironmentStatus.READY else None
+
+    return response
 
 
 @app.delete("/api/agents/{name}/environment")
@@ -1261,11 +1386,67 @@ async def delete_environment(name: str):
     if name not in manager.list_agents():
         raise HTTPException(status_code=404, detail="Agent不存在")
 
+    # 取消可能进行中的创建任务
+    await environment_creator.cancel(name)
+
     try:
         success = await environment_manager.delete_environment(name)
         return {"success": success}
     except EnvironmentError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agents/{name}/environment/retry")
+async def retry_environment_creation(name: str):
+    """重试环境创建
+
+    当环境创建失败时，可以调用此接口重新创建环境。
+    清理失败的环境并启动新的创建任务。
+    """
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    # 检查环境状态
+    existing = await environment_manager.get_environment_status(name)
+
+    # 如果环境已经就绪，无需重试
+    if existing and existing.status == EnvironmentStatus.READY:
+        return {
+            "status": "ready",
+            "message": "环境已就绪，无需重试"
+        }
+
+    # 如果有进行中的任务，提示等待
+    if environment_creator.has_running_task(name):
+        return {
+            "status": "creating",
+            "message": "环境创建任务正在进行中，请等待完成"
+        }
+
+    # 清理失败的环境记录
+    if existing and existing.status == EnvironmentStatus.ERROR:
+        try:
+            await environment_manager.delete_environment(name)
+            print(f"[ENV] 已清理失败的环境: {name}")
+        except Exception as e:
+            print(f"[ENV] 清理失败环境时出错: {e}")
+
+    # 创建新的环境元数据（状态为creating）
+    initial_env = AgentEnvironment(
+        agent_name=name,
+        environment_type=EnvironmentType.CONDA,
+        status=EnvironmentStatus.CREATING,
+        python_version="3.11"
+    )
+    environment_manager._save_metadata(initial_env)
+
+    # 重新启动环境创建任务
+    await environment_creator.create(name)
+
+    return {
+        "status": "retrying",
+        "message": "环境重新初始化中..."
+    }
 
 
 @app.post("/api/agents/{name}/environment/packages")

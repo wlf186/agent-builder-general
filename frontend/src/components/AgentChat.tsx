@@ -154,6 +154,11 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
     messages: ChatMessage[];
   } | null>(null);
 
+  // 【修复-2603131100】防止 onConversationChange 重复调用
+  // onConversationChange 是内联函数，每次父组件渲染都会变化
+  // 这导致 useEffect 被多次触发，需要跟踪上次处理的会话
+  const lastProcessedConversationRef = useRef<string | null>(null);
+
   // 自动滚动到底部
   const scrollToBottom = useCallback(() => {
     if (messagesContainerRef.current) {
@@ -246,8 +251,20 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   // 这避免了在 setMessages 回调中直接调用导致的渲染期间 setState 错误
   useEffect(() => {
     const pendingUpdate = pendingConversationUpdateRef.current;
+    // 【修复-2603131100】检查是否已处理过该会话，防止重复调用
+    // onConversationChange 是内联函数，每次父组件渲染都会变化
+    // 导致这个 useEffect 被多次触发，需要通过 conversationId 去重
     if (pendingUpdate && onConversationChange) {
-      onConversationChange(pendingUpdate.conversationId, pendingUpdate.messages);
+      const convId = pendingUpdate.conversationId;
+      const msgCount = pendingUpdate.messages.length;
+
+      // 生成唯一标识符：conversationId + 消息数量
+      // 只有当标识符变化时才调用 onConversationChange
+      const updateKey = `${convId}-${msgCount}`;
+      if (lastProcessedConversationRef.current !== updateKey) {
+        lastProcessedConversationRef.current = updateKey;
+        onConversationChange(pendingUpdate.conversationId, pendingUpdate.messages);
+      }
       pendingConversationUpdateRef.current = null; // 清除待处理的更新
     }
   }, [messages, onConversationChange]);
