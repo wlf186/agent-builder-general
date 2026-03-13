@@ -64,13 +64,29 @@ class AgentEngine:
         # 初始化 SkillTool 用于按需加载技能
         self.skill_tool: Optional[SkillTool] = None
         if skill_registry and config.skills:
+            print(f"[DEBUG] AgentEngine.__init__: config.skills = {config.skills}, agent_name = {config.name}")
             self.skill_tool = SkillTool(
                 skill_registry=skill_registry,
                 skills_dir=self.skills_dir,
-                enabled_skills=config.skills,
+                enabled_skills=config.skills,  # 初始值
                 execution_engine=execution_engine,
                 agent_name=config.name
             )
+            print(f"[DEBUG] SkillTool.enabled_skills = {self.skill_tool.enabled_skills}")
+
+        # 保存config引用，用于动态刷新skill_tool的enabled_skills
+        self._config_ref = config
+
+    def _refresh_skill_tool_if_needed(self):
+        """检查并刷新skill_tool的enabled_skills（用于配置热更新）"""
+        if self.skill_tool and hasattr(self._config_ref, 'skills'):
+            current_skills = set(self._config_ref.skills or [])
+            cached_skills = set(self.skill_tool.enabled_skills or [])
+            if current_skills != cached_skills:
+                # 配置已变化，更新skill_tool
+                self.skill_tool.enabled_skills = list(current_skills)
+                # 同时清除缓存，避免使用旧的skill内容
+                self.skill_tool._loaded_skills.clear()
         self._setup_llm()
 
     def _setup_llm(self):
@@ -887,6 +903,9 @@ BEST: 编号"""
             history: 对话历史
             file_context: 文件上下文信息（包含用户上传文件的元数据）
         """
+        # 刷新skill_tool的enabled_skills（用于配置热更新）
+        self._refresh_skill_tool_if_needed()
+
         # 构建系统提示
         system_prompt = self._get_system_prompt()
 
@@ -962,7 +981,7 @@ BEST: 编号"""
 
 ### 示例4： 执行技能脚本（处理上传文件！）
 用户：读取这个 PDF 文件的内容
-助手：{{"tool": "execute_skill", "arguments": {{"skill_name": "AB-pdf", "input_file_ids": ["文件ID"], "arguments": ["./input/document.pdf"]}}}}
+助手：{{"tool": "execute_skill", "arguments": {{"skill_name": "{self.skill_tool.enabled_skills[0] if self.skill_tool.enabled_skills else "技能名"}", "input_file_ids": ["文件ID"], "arguments": ["./input/document.pdf"]}}}}
 
 **可用技能**: {skills_list}
 当用户询问与这些技能相关的问题时，**必须先调用 load_skill 工具加载对应技能**！
@@ -1143,11 +1162,20 @@ BEST: 编号"""
                             service_name = tool.server_name
 
                     # 检查是否是 skill 工具
-                    is_skill_tool = tool_name == SkillTool.TOOL_NAME
+                    is_skill_tool = tool_name == SkillTool.TOOL_NAME or tool_name == SkillTool.EXECUTE_TOOL_NAME
 
                     # 生成唯一标识符（用于区分同名工具的多次调用）
                     import uuid
                     call_id = str(uuid.uuid4())[:8]
+
+                    # 如果是 skill 工具，规范化 args 中的 skill_name
+                    normalized_tool_args = tool_args
+                    if is_skill_tool:
+                        raw_skill_name = tool_args.get("skill_name") or tool_args.get("skill", "")
+                        if raw_skill_name and self.skill_tool:
+                            matched_name = self.skill_tool._match_skill_name(raw_skill_name)
+                            if matched_name:
+                                normalized_tool_args = {**tool_args, "skill_name": matched_name}
 
                     # 输出工具调用信息（包含服务名和唯一ID）
                     yield {
@@ -1155,12 +1183,13 @@ BEST: 编号"""
                         "name": tool_name,
                         "call_id": call_id,
                         "service": service_name if service_name else "skill-system" if is_skill_tool else "",
-                        "args": tool_args
+                        "args": normalized_tool_args
                     }
 
                     # 如果是 skill 工具，发送 skill_loading 事件
                     if is_skill_tool:
-                        skill_name = tool_args.get("skill_name") or tool_args.get("skill", "")
+                        # 使用已规范化的skill名称
+                        skill_name = normalized_tool_args.get("skill_name") or normalized_tool_args.get("skill", "")
                         yield {
                             "type": "skill_loading",
                             "skill_name": skill_name
@@ -1171,7 +1200,8 @@ BEST: 编号"""
 
                     # 如果是 skill 工具，发送 skill_loaded 事件
                     if is_skill_tool:
-                        skill_name = tool_args.get("skill_name") or tool_args.get("skill", "")
+                        # 使用已规范化的skill名称
+                        skill_name = normalized_tool_args.get("skill_name") or normalized_tool_args.get("skill", "")
                         yield {
                             "type": "skill_loaded",
                             "skill_name": skill_name,

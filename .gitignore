@@ -28,6 +28,10 @@ __pycache__/
 .env.production.local
 *.env
 
+# Encrypted secrets files (optional - uncomment to exclude encrypted files)
+# data/.secrets.json.enc
+# data/*_secrets.json
+
 # IDE
 .idea/
 .vscode/

@@ -403,6 +403,9 @@ Example call format:
             return "Error: Execution engine not available"
 
         # 尝试匹配skill名称（支持模糊匹配）
+        # 调试：打印enabled_skills的值
+        print(f"[DEBUG] execute_script: skill_name='{skill_name}', enabled_skills={self.enabled_skills}")
+
         actual_skill_name = self._match_skill_name(skill_name)
         if not actual_skill_name:
             available_skills = self._format_available_skills()

@@ -41,7 +41,11 @@ import { ModelServiceDialog, ModelService } from "@/components/ModelServiceDialo
 import { SkillDetailDialog } from "@/components/SkillDetailDialog";
 import { SkillUploadDialog } from "@/components/SkillUploadDialog";
 import { ConversationDrawer } from "@/components/ConversationDrawer";
+import { EnvironmentBanner } from "@/components/EnvironmentBanner";
+import { InitializationGuideCard } from "@/components/InitializationGuideCard";
+import { EnvironmentReadyNotification } from "@/components/EnvironmentReadyNotification";
 import { useLocale } from "@/lib/LocaleContext";
+import { useEnvironmentStatus } from "@/hooks/useEnvironmentStatus";
 
 const API_BASE = "/api";
 
@@ -186,6 +190,28 @@ export default function Home() {
   const [conversationDrawerOpen, setConversationDrawerOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [currentConversationMessages, setCurrentConversationMessages] = useState<any[]>([]);
+
+  // 环境状态管理 - 异步环境初始化功能
+  const { isReady: isEnvironmentReady, isCreating: isEnvironmentCreating } =
+    useEnvironmentStatus({
+      agentName: selectedAgent || "",
+      enabled: !!selectedAgent && currentView === "config",
+    });
+
+  // 环境就绪通知状态
+  const [showReadyNotification, setShowReadyNotification] = useState(false);
+  const [previousWasCreating, setPreviousWasCreating] = useState(false);
+
+  // 监听环境状态变化，在从creating变为ready时显示通知
+  useEffect(() => {
+    if (previousWasCreating && isEnvironmentReady && selectedAgent) {
+      setShowReadyNotification(true);
+      // 10秒后自动消失
+      const timer = setTimeout(() => setShowReadyNotification(false), 10000);
+      return () => clearTimeout(timer);
+    }
+    setPreviousWasCreating(isEnvironmentCreating);
+  }, [isEnvironmentReady, isEnvironmentCreating, selectedAgent]);
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -509,12 +535,27 @@ export default function Home() {
       });
       const data = await res.json();
       if (res.ok) {
+        const createdAgentName = data.name || newName.trim();
         setNewName("");
         setNewDesc("");
         setCreateError("");
         await loadAgents();
-        setCurrentView("list");
-        showToast(locale === "zh" ? "智能体创建成功" : "Agent created successfully");
+        // 直接进入配置页面，异步环境初始化将在后台进行
+        setSelectedAgent(createdAgentName);
+        setPersona(newDesc || (locale === "zh" ? "你是一个有帮助的AI助手。" : "You are a helpful AI assistant."));
+        setModelService("");
+        setTemperature(0.7);
+        setMaxIterations(10);
+        setShortTermMemory(5);
+        setPlanningMode("react");
+        setSelectedMcpServices([]);
+        setSelectedSkills([]);
+        setCurrentView("config");
+        // P0: 显示创建成功Toast，包含智能体名称和环境初始化提示
+        const message = locale === "zh"
+          ? `智能体「${createdAgentName}」创建成功，正在初始化运行环境...`
+          : `Agent '${createdAgentName}' created successfully, initializing runtime environment...`;
+        showToast(message);
       } else {
         setCreateError(data.detail || (locale === "zh" ? "创建失败" : "Creation failed"));
       }
@@ -1128,6 +1169,22 @@ export default function Home() {
         )}
       </AnimatePresence>
 
+      {/* 环境状态横幅 */}
+      {selectedAgent && (
+        <EnvironmentBanner agentName={selectedAgent} locale={locale as 'zh' | 'en'} />
+      )}
+
+      {/* 环境就绪通知 */}
+      <AnimatePresence>
+        {showReadyNotification && selectedAgent && (
+          <EnvironmentReadyNotification
+            agentName={selectedAgent}
+            locale={locale as 'zh' | 'en'}
+            onDismiss={() => setShowReadyNotification(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <motion.header
         initial={{ y: -20, opacity: 0 }}
@@ -1166,8 +1223,22 @@ export default function Home() {
         </div>
       </motion.header>
 
-      {/* Main Content */}
-      <div className="flex p-6 gap-6 max-w-7xl mx-auto">
+      {/* Main Content - 为环境横幅留出空间 */}
+      <div className={cn(
+        "flex p-6 gap-6 max-w-7xl mx-auto transition-all duration-300",
+        // 当环境正在初始化时，顶部留出更多空间（横幅高度约48px）
+        isEnvironmentCreating && "pt-20"
+      )}>
+        {/* 初始化引导卡片 - 环境创建时显示 */}
+        {isEnvironmentCreating && selectedAgent && (
+          <div className="w-full">
+            <InitializationGuideCard
+              agentName={selectedAgent}
+              locale={locale as 'zh' | 'en'}
+            />
+          </div>
+        )}
+
         {/* Left Panel - Config */}
         <motion.div
           initial={{ opacity: 0, x: -20 }}
@@ -1502,17 +1573,26 @@ export default function Home() {
             )}
           </Card>
 
-          {/* Skills Config */}
-          <Card className="overflow-hidden">
+          {/* Skills Config - 环境初始化期间禁用 */}
+          <Card className={cn(
+            "overflow-hidden transition-all duration-300",
+            isEnvironmentCreating && "opacity-50 pointer-events-none"
+          )}>
             <div
               className="px-5 py-4 border-b border-white/[0.05] flex items-center gap-3 bg-white/[0.02] cursor-pointer"
-              onClick={() => setConfigSkillsExpanded(!configSkillsExpanded)}
+              onClick={() => !isEnvironmentCreating && setConfigSkillsExpanded(!configSkillsExpanded)}
             >
-              <BookOpen size={16} className="text-purple-400" />
+              <BookOpen size={16} className={cn(
+                "transition-colors",
+                isEnvironmentCreating ? "text-gray-500" : "text-purple-400"
+              )} />
               <span className="font-medium text-sm text-gray-300 flex-1">
                 {locale === "zh" ? "技能配置" : "Skills Configuration"}
               </span>
               {configSkillsExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+              {isEnvironmentCreating && (
+                <Loader2 size={14} className="text-blue-400 animate-spin" />
+              )}
             </div>
             {configSkillsExpanded && (
               <CardContent className="p-5">
@@ -1600,17 +1680,29 @@ export default function Home() {
           </Card>
         </motion.div>
 
-        {/* Right Panel - Chat */}
+        {/* Right Panel - Chat - 环境初始化期间禁用 */}
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
-          className="flex-1 min-w-0"
+          className="flex-1 min-w-0 relative"
         >
-          <Card className="sticky top-24 overflow-hidden h-[calc(100vh-180px)] min-h-[500px]">
+          <Card
+            data-chat-card="true"
+            className={cn(
+              "sticky top-24 overflow-hidden h-[calc(100vh-180px)] min-h-[500px] transition-all duration-300",
+              isEnvironmentCreating && "opacity-50 pointer-events-none"
+            )}
+          >
             <div className="px-5 py-4 border-b border-white/[0.05] flex items-center justify-between bg-white/[0.02]">
               <div className="flex items-center gap-3">
-                <Bot size={16} className="text-emerald-400" />
+                <Bot size={16} className={cn(
+                  "transition-colors",
+                  isEnvironmentCreating ? "text-gray-500" : "text-emerald-400"
+                )} />
                 <span className="font-medium text-sm text-gray-300">{t("debugChat")}</span>
+                {isEnvironmentCreating && (
+                  <Loader2 size={14} className="text-blue-400 animate-spin ml-2" />
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {/* 巻加历史按钮 */}
@@ -1618,14 +1710,26 @@ export default function Home() {
                   variant="ghost"
                   size="sm"
                   onClick={() => setConversationDrawerOpen(true)}
-                  className="text-xs text-gray-400 hover:text-white hover:bg-white/10"
+                  disabled={isEnvironmentCreating}
+                  className="text-xs text-gray-400 hover:text-white hover:bg-white/10 disabled:opacity-50"
                 >
                   <History className="w-3.5 h-3.5 mr-1.5" />
                   {t("historyConversations")}
                 </Button>
               </div>
             </div>
-            <div className="h-[calc(100%-57px)]">
+            <div className="h-[calc(100%-57px)] relative">
+              {/* 环境初始化中的遮罩层 */}
+              {isEnvironmentCreating && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/80 rounded-lg">
+                  <div className="text-center">
+                    <Loader2 className="w-8 h-8 mx-auto mb-3 text-blue-400 animate-spin" />
+                    <p className="text-sm text-gray-300">
+                      {locale === "zh" ? "环境初始化中，调试功能暂不可用" : "Environment initializing, debug unavailable"}
+                    </p>
+                  </div>
+                </div>
+              )}
               <AgentChat
                 agentName={selectedAgent || ""}
                 shortTermMemory={shortTermMemory}

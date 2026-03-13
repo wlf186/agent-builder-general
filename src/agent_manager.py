@@ -252,6 +252,23 @@ class AgentManager:
             return False
         self.configs[name] = config
         self._save_configs()
+
+        # 清除缓存的实例，下次获取时会使用新配置创建
+        if name in self.agents:
+            # 异步关闭旧实例（同步方法中只能创建任务）
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果事件循环正在运行，创建任务
+                    asyncio.create_task(self.agents[name].shutdown())
+                else:
+                    # 否则直接运行
+                    loop.run_until_complete(self.agents[name].shutdown())
+            except Exception as e:
+                print(f"[WARN] 关闭旧实例失败: {e}")
+            del self.agents[name]
+
         return True
 
     def delete_agent_config(self, name: str) -> bool:

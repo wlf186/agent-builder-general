@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, CheckCircle, XCircle, Plus } from "lucide-react";
+import { X, Loader2, CheckCircle, XCircle, Plus, Info, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/lib/LocaleContext";
@@ -302,6 +302,25 @@ export function ModelServiceDialog({ open, onClose, onSave, service }: ModelServ
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder={isEdit ? (locale === "zh" ? "留空保持不变" : "Leave empty to keep unchanged") : (locale === "zh" ? "请输入 API Key" : "Enter API Key")}
                 />
+                {/* 安全提示 */}
+                <div className="mt-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20">
+                  <div className="flex items-start gap-2">
+                    <Info className="w-4 h-4 text-blue-500 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 text-xs text-gray-600 dark:text-gray-400">
+                      <p className="font-medium text-blue-700 dark:text-blue-300 mb-1">
+                        {locale === "zh" ? "推荐使用环境变量存储 API Key" : "Environment Variable Recommended"}
+                      </p>
+                      <p className="text-gray-500 dark:text-gray-400">
+                        {locale === "zh"
+                          ? "格式: {SERVICE_NAME}_API_KEY，例如: "
+                          : "Format: {SERVICE_NAME}_API_KEY, e.g.: "}
+                        <code className="px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-blue-600 dark:text-blue-400 font-mono">
+                          {name?.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_API_KEY
+                        </code>
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
