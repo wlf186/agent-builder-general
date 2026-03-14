@@ -60,9 +60,26 @@ class MCPToolAdapter:
             """
             执行 MCP 工具（同步版本）
 
+            【AC130-202603141800 TC-003 修复】
+            修复动态 schema 的 kwargs 参数包装问题：
+            - 当使用 _create_dynamic_schema 时，参数被包装为 {'kwargs': {...}}
+            - 需要 kwargs 展开后传递给 MCP
+
             注意：由于 MCP 调用是异步的，这里需要在事件循环中运行
             """
             try:
+                # ========================================
+                # 【TC-003 修复】展开 kwargs 参数
+                # ========================================
+                # 如果只有一个键 'kwargs' 且其值是字典，说明使用了动态 schema
+                # 需要展开 kwargs 的内容作为实际参数
+                actual_args = kwargs
+                if len(kwargs) == 1 and 'kwargs' in kwargs:
+                    kwargs_value = kwargs['kwargs']
+                    if isinstance(kwargs_value, dict):
+                        actual_args = kwargs_value
+                        print(f"[DEBUG] 展开动态 schema 参数: {kwargs} -> {actual_args}")
+
                 # 获取当前事件循环，如果没有则创建
                 try:
                     loop = asyncio.get_event_loop()
@@ -74,11 +91,11 @@ class MCPToolAdapter:
                 if loop.is_running():
                     # 在异步上下文中，需要使用不同方式
                     # 这种情况下返回一个占位符，实际调用应该在异步上下文中处理
-                    return self._execute_async_wrapper(mcp_tool.name, kwargs)
+                    return self._execute_async_wrapper(mcp_tool.name, actual_args)
                 else:
                     # 同步上下文，直接运行
                     return loop.run_until_complete(
-                        self.mcp_manager.call_tool(mcp_tool.name, kwargs)
+                        self.mcp_manager.call_tool(mcp_tool.name, actual_args)
                     )
             except Exception as e:
                 return f"工具调用错误: {str(e)}"
@@ -350,6 +367,9 @@ class MCPToolAdapter:
         """
         创建异步执行器
 
+        【AC130-202603141800 TC-003 修复】
+        修复动态 schema 的 kwargs 参数包装问题
+
         Args:
             mcp_tool: MCP 工具
 
@@ -357,7 +377,18 @@ class MCPToolAdapter:
             异步执行函数
         """
         async def async_execute(**kwargs) -> str:
-            return await self.mcp_manager.call_tool(mcp_tool.name, kwargs)
+            # ========================================
+            # 【TC-003 修复】展开 kwargs 参数
+            # ========================================
+            # 如果只有一个键 'kwargs' 且其值是字典，说明使用了动态 schema
+            actual_args = kwargs
+            if len(kwargs) == 1 and 'kwargs' in kwargs:
+                kwargs_value = kwargs['kwargs']
+                if isinstance(kwargs_value, dict):
+                    actual_args = kwargs_value
+                    print(f"[DEBUG] [async] 展开动态 schema 参数: {kwargs} -> {actual_args}")
+
+            return await self.mcp_manager.call_tool(mcp_tool.name, actual_args)
 
         return async_execute
 
