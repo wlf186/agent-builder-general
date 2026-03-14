@@ -766,10 +766,9 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                             s.skillName === skillName || normalizeSkillName(s.skillName) === normalized
                               ? { ...s, status: success ? 'completed' : 'failed', message: success ? (locale === "zh" ? '加载完成' : 'Loaded') : (locale === "zh" ? '加载失败' : 'Failed') }
                               : s
-                          ),
-                          thinking: success
-                            ? (locale === "zh" ? `已加载技能: ${skillName}` : `Skill loaded: ${skillName}`)
-                            : (locale === "zh" ? `加载技能失败: ${skillName}` : `Failed to load skill: ${skillName}`)
+                          )
+                          // 【修复】不再覆盖 thinking 字段，保留原始思考内容
+                          // 技能加载状态通过 skillStates 展示，不需要修改 thinking
                         }
                       : msg
                   )

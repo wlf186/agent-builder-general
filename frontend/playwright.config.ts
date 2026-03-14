@@ -18,10 +18,10 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: {
-    // 不自动启动服务，使用已有的服务
-    command: 'echo "Using existing server"',
-    port: 20880,
-    reuseExistingServer: true,
-  },
+  // 不使用 webServer，手动管理服务生命周期
+  // webServer: {
+  //   command: 'echo "Using existing server"',
+  //   port: 20880,
+  //   reuseExistingServer: true,
+  // },
 });

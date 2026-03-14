@@ -15,6 +15,7 @@ from langgraph.graph import StateGraph, END
 
 from .models import AgentConfig, LLMProvider, PlanningMode, ModelProvider
 from .mcp_manager import MCPManager
+from .mcp_tool_adapter import MCPToolAdapter
 from .skill_registry import SkillRegistry
 from .skill_loader import SkillLoader
 from .skill_tool import SkillTool
@@ -22,6 +23,14 @@ from .model_service_registry import ModelServiceRegistry
 
 if TYPE_CHECKING:
     from .execution_engine import ExecutionEngine
+
+
+# 工具调用策略枚举
+class ToolCallStrategy:
+    """工具调用策略"""
+    AUTO = "auto"       # 模型自主决定（默认）
+    ANY = "any"         # 强制至少调用一个工具
+    REQUIRED = "required"  # 强制至少调用一个工具（OpenAI）
 
 
 class AgentState(TypedDict):
@@ -60,7 +69,10 @@ class AgentEngine:
         self.model_service_registry = model_service_registry
         self.execution_engine = execution_engine
         self.llm = None
+        self.llm_with_tools = None  # 绑定工具后的 LLM
         self.graph = None
+        self._tool_adapter: Optional[MCPToolAdapter] = None
+        self._tool_call_strategy = ToolCallStrategy.AUTO  # 默认策略
         # 初始化 SkillTool 用于按需加载技能
         self.skill_tool: Optional[SkillTool] = None
         if skill_registry and config.skills:
@@ -104,6 +116,8 @@ class AgentEngine:
                     api_key=service.api_key or "not-needed",  # Ollama不需要API key
                     temperature=self.config.temperature,
                 )
+                # 绑定工具到 LLM
+                self._bind_tools_to_llm()
                 return
             else:
                 raise ValueError(f"模型服务 '{self.config.model_service}' 不存在")
@@ -129,6 +143,145 @@ class AgentEngine:
         else:
             # 默认使用Ollama
             raise ValueError("未配置模型服务，请在智能体配置中选择一个模型服务")
+
+        # 绑定工具到 LLM（兼容旧配置路径）
+        self._bind_tools_to_llm()
+
+    def _bind_tools_to_llm(self):
+        """
+        将工具绑定到 LLM，启用原生工具调用
+
+        使用 bind_tools() 方法让 LLM 原生支持工具调用，
+        而不是依赖文本解析。
+        """
+        if not self.llm:
+            return
+
+        # 检查 LLM 是否支持 bind_tools
+        if not hasattr(self.llm, 'bind_tools'):
+            print(f"[WARNING] LLM {self.llm.__class__.__name__} 不支持 bind_tools，使用传统文本模式")
+            self.llm_with_tools = None
+            return
+
+        # 收集所有需要绑定的工具
+        tools_to_bind = []
+
+        # 1. MCP 工具
+        if self.mcp_manager and self.mcp_manager.all_tools:
+            # 初始化适配器（如果还没有）
+            if self._tool_adapter is None:
+                self._tool_adapter = MCPToolAdapter(self.mcp_manager)
+
+            # 转换 MCP 工具为 LangChain Tool
+            mcp_tools = self._tool_adapter.convert_all_tools()
+            tools_to_bind.extend(mcp_tools)
+            print(f"[DEBUG] 绑定 {len(mcp_tools)} 个 MCP 工具")
+
+        # 2. Skill 工具（load_skill, execute_skill）
+        if self.skill_tool and self.skill_tool.enabled_skills:
+            skill_tools = self._create_skill_tools()
+            tools_to_bind.extend(skill_tools)
+            print(f"[DEBUG] 绑定 {len(skill_tools)} 个 Skill 工具")
+
+        if not tools_to_bind:
+            print(f"[DEBUG] 没有工具需要绑定")
+            self.llm_with_tools = None
+            return
+
+        # 绑定工具到 LLM
+        try:
+            # 根据策略选择 tool_choice 参数
+            tool_choice = self._get_tool_choice_param()
+
+            if tool_choice:
+                self.llm_with_tools = self.llm.bind_tools(
+                    tools_to_bind,
+                    tool_choice=tool_choice
+                )
+                print(f"[DEBUG] LLM 已绑定 {len(tools_to_bind)} 个工具，tool_choice={tool_choice}")
+            else:
+                self.llm_with_tools = self.llm.bind_tools(tools_to_bind)
+                print(f"[DEBUG] LLM 已绑定 {len(tools_to_bind)} 个工具，tool_choice=auto")
+        except Exception as e:
+            print(f"[WARNING] bind_tools 失败: {e}，使用传统文本模式")
+            self.llm_with_tools = None
+
+    def _get_tool_choice_param(self) -> Optional[str]:
+        """
+        获取 tool_choice 参数
+
+        根据模型类型选择合适的 tool_choice 值
+        OpenAI 使用 "required"，其他模型使用 "any"
+
+        Returns:
+            tool_choice 参数值或 None
+        """
+        if self._tool_call_strategy == ToolCallStrategy.AUTO:
+            return None
+
+        # 检查模型类型
+        model_name = getattr(self.llm, 'model_name', '') or ''
+        base_url = getattr(self.llm, 'base_url', '') or ''
+
+        # OpenAI 使用 "required"
+        if 'openai.com' in base_url or model_name.startswith('gpt-'):
+            return ToolCallStrategy.REQUIRED
+
+        # 其他模型使用 "any"
+        return ToolCallStrategy.ANY
+
+    def set_tool_call_strategy(self, strategy: str):
+        """
+        设置工具调用策略
+
+        Args:
+            strategy: 策略值 ("auto", "any", "required")
+        """
+        if strategy in (ToolCallStrategy.AUTO, ToolCallStrategy.ANY, ToolCallStrategy.REQUIRED):
+            self._tool_call_strategy = strategy
+            # 重新绑定工具
+            self._bind_tools_to_llm()
+        else:
+            raise ValueError(f"无效的工具调用策略: {strategy}")
+
+    def _create_skill_tools(self) -> List:
+        """
+        创建 Skill 相关的 LangChain 工具
+
+        Returns:
+            LangChain Tool 列表
+        """
+        from langchain_core.tools import tool
+
+        tools = []
+
+        @tool
+        def load_skill(skill_name: str) -> str:
+            """加载技能内容以获取详细指导。
+
+            当用户询问与技能相关的问题时，使用此工具加载技能内容。
+
+            Args:
+                skill_name: 要加载的技能名称
+            """
+            # 这个方法会被 LLM 调用，实际执行在 _execute_tool 中处理
+            return f"[SKILL_LOAD] {skill_name}"
+
+        @tool
+        def execute_skill(skill_name: str, arguments: List[str] = [], input_file_ids: List[str] = []) -> str:
+            """执行技能脚本来处理上传的文件或执行特定任务。
+
+            用于处理 PDF、DOCX 等文件时使用此工具。
+
+            Args:
+                skill_name: 要执行的技能名称
+                arguments: 传递给脚本的参数列表
+                input_file_ids: 要处理的文件 ID 列表
+            """
+            return f"[SKILL_EXECUTE] {skill_name}"
+
+        tools.extend([load_skill, execute_skill])
+        return tools
 
     def _get_system_prompt(self) -> str:
         """获取系统提示词"""
@@ -829,6 +982,9 @@ BEST: 编号"""
 
     async def run(self, user_input: str, history: List[Dict] = None) -> str:
         """运行Agent"""
+        # 确保LLM被初始化（与stream()方法一致）
+        self._refresh_skill_tool_if_needed()
+
         if not self.graph:
             self.build_graph()
 
@@ -1080,7 +1236,10 @@ BEST: 编号"""
             else:
                 yield {"type": "thinking", "content": f"✓ 第 {iteration} 轮处理\n✓ 分析是否需要更多工具调用..."}
 
-            async for chunk in self.llm.astream(messages):
+            # 选择使用绑定工具的 LLM 还是原始 LLM
+            llm_to_use = self.llm_with_tools if self.llm_with_tools else self.llm
+
+            async for chunk in llm_to_use.astream(messages):
                 if chunk.content:
                     response_content += chunk.content
 
@@ -1126,18 +1285,33 @@ BEST: 编号"""
                 if '"tool"' in buffer_content:
                     might_be_tool_call = True
 
-            # 3. 检查是否有工具调用（始终检查完整内容，因为某些模型可能在开头输出换行符）
+            # 3. 检查是否有工具调用（支持原生 tool_calls 和文本解析）
             tool_calls = []
 
-            # 始终尝试解析工具调用，不依赖 might_be_tool_call 标志
-            # 因为某些模型（如 GLM-4.5-Air）可能在 JSON 前输出换行符或思考文本
-            class MockResponse:
-                def __init__(self, content):
-                    self.content = content
-                    self.tool_calls = []
+            # 优先检查原生 tool_calls（使用 bind_tools 时）
+            if self.llm_with_tools:
+                # 需要重新调用 LLM 一次来获取完整的 tool_calls
+                # 因为流式响应中 tool_calls 可能不完整
+                try:
+                    full_response = await llm_to_use.ainvoke(messages)
+                    if hasattr(full_response, 'tool_calls') and full_response.tool_calls:
+                        # 原生工具调用，转换为统一格式
+                        tool_calls = self._convert_native_tool_calls(full_response.tool_calls)
+                        print(f"[DEBUG] 检测到原生 tool_calls: {[tc['name'] for tc in tool_calls]}")
+                except Exception as e:
+                    print(f"[WARNING] 获取原生 tool_calls 失败: {e}")
 
-            mock_response = MockResponse(response_content)
-            tool_calls = self._parse_tool_calls_enhanced(mock_response)
+            # 如果没有原生 tool_calls，尝试文本解析（兼容模式）
+            if not tool_calls:
+                # 始终尝试解析工具调用，不依赖 might_be_tool_call 标志
+                # 因为某些模型（如 GLM-4.5-Air）可能在 JSON 前输出换行符或思考文本
+                class MockResponse:
+                    def __init__(self, content):
+                        self.content = content
+                        self.tool_calls = []
+
+                mock_response = MockResponse(response_content)
+                tool_calls = self._parse_tool_calls_enhanced(mock_response)
 
             # 4. 根据是否有工具调用，处理输出
             if tool_calls:
@@ -1275,6 +1449,44 @@ BEST: 编号"""
         # 如果有多轮工具调用，确保最终有汇总输出
         if all_tool_calls_info and not full_response:
             yield {"type": "thinking", "content": "✓ 所有工具调用完成\n✓ 生成汇总结果..."}
+
+    def _convert_native_tool_calls(self, native_tool_calls) -> List[Dict]:
+        """
+        将原生 tool_calls 转换为统一格式
+
+        Args:
+            native_tool_calls: LangChain 原生 tool_calls
+
+        Returns:
+            统一格式的工具调用列表 [{"name": ..., "args": ...}, ...]
+        """
+        converted = []
+
+        for tc in native_tool_calls:
+            try:
+                # LangChain tool_call 格式
+                # tc.name: 工具名称
+                # tc.args: 参数字典
+                tool_name = tc.name if hasattr(tc, 'name') else tc.get('name', '')
+
+                # 获取参数
+                if hasattr(tc, 'args'):
+                    tool_args = tc.args
+                elif isinstance(tc, dict):
+                    tool_args = tc.get('args', {})
+                else:
+                    tool_args = {}
+
+                if tool_name:
+                    converted.append({
+                        "name": tool_name,
+                        "args": tool_args,
+                        "id": f"call_{tool_name}"
+                    })
+            except Exception as e:
+                print(f"[WARNING] 转换 tool_call 失败: {e}")
+
+        return converted
 
     def _parse_tool_calls_enhanced(self, response) -> List[Dict]:
         """增强版工具调用解析 - 支持多种格式"""
