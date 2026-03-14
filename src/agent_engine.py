@@ -1529,7 +1529,31 @@ BEST: 编号"""
 
         # 如果有多轮工具调用，确保最终有汇总输出
         if all_tool_calls_info and not full_response:
+            # 【TC-004 修复】当 LLM 在多轮工具调用后没有生成最终回答时，
+            # 需要确保输出内容，而不是只输出 thinking
             yield {"type": "thinking", "content": "✓ 所有工具调用完成\n✓ 生成汇总结果..."}
+
+            # 构建工具调用结果的汇总内容
+            summary_parts = []
+            for tc in all_tool_calls_info:
+                tool_name = tc.get('name', 'unknown')
+                result = tc.get('result', '')
+                # 截取结果的前 500 字符，避免过长
+                if len(result) > 500:
+                    result = result[:500] + '...(内容过长已截断)'
+                summary_parts.append(f"**{tool_name}** 执行结果:\n```\n{result}\n```")
+
+            if summary_parts:
+                summary_content = "\n\n".join(summary_parts)
+                for char in summary_content:
+                    full_response += char
+                    yield {"type": "content", "content": char}
+            else:
+                # 如果没有工具调用结果，输出默认消息
+                default_msg = "工具调用已完成，但未能生成最终回答。请尝试重新提问。"
+                for char in default_msg:
+                    full_response += char
+                    yield {"type": "content", "content": char}
 
     def _convert_native_tool_calls(self, native_tool_calls) -> List[Dict]:
         """
