@@ -9,9 +9,11 @@ from langchain_core.tools import StructuredTool
 
 # 使用标准 pydantic 导入（兼容 pydantic v2）
 try:
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, Field, create_model
 except ImportError:
     from pydantic.v1 import BaseModel, Field
+    # pydantic v1 fallback
+    from pydantic import create_model
 
 if TYPE_CHECKING:
     from .mcp_manager import MCPManager, MCPTool
@@ -135,21 +137,21 @@ class MCPToolAdapter:
         """
         创建动态参数 schema
 
+        【AC130-202603141800 修复】
+        修复 pydantic v2 类型注解问题
+
         Args:
             tool_name: 工具名称
 
         Returns:
             动态创建的 Pydantic BaseModel
         """
-        # 动态创建模型类
-        fields = {
-            "kwargs": Field(
-                default_factory=dict,
-                description=f"{tool_name} 工具的参数（键值对形式）"
-            )
-        }
-
-        return type(f"{tool_name}_input", (BaseModel,), fields)
+        # 使用 pydantic.create_model 动态创建模型，确保类型注解正确
+        return create_model(
+            f"{tool_name}_input",
+            kwargs=(dict, Field(default_factory=dict, description=f"{tool_name} 工具的参数（键值对形式）")),
+            __base__=BaseModel
+        )
 
     def _parse_input_schema(self, schema: Dict, tool_name: str) -> type[BaseModel]:
         """
@@ -204,7 +206,10 @@ class MCPToolAdapter:
 
     def _enhance_description(self, mcp_tool: 'MCPTool') -> str:
         """
-        增强工具描述，添加使用场景提示和触发关键词
+        增强工具描述，添加强制性前缀、使用场景提示和触发关键词
+
+        【AC130-202603141800 P1 修复】
+        添加强制性前缀 "[MANDATORY]" 提升工具调用优先级
 
         Args:
             mcp_tool: MCP 工具
@@ -214,19 +219,90 @@ class MCPToolAdapter:
         """
         base_desc = mcp_tool.description or mcp_tool.name
 
+        # ========================================
+        # 【P1 修复】强制性前缀
+        # 目的：让 LLM 理解工具的必须使用性
+        # ========================================
+        mandatory_prefix = self._get_mandatory_prefix(mcp_tool.name)
+
         # 根据工具名称添加场景提示
         hints = self._get_tool_hints(mcp_tool.name)
 
         # 根据工具名称添加触发关键词
         keywords = self._get_trigger_keywords(mcp_tool.name)
 
+        # 添加 Few-shot 调用示例
+        examples = self._get_few_shot_examples(mcp_tool.name)
+
+        # 组合增强描述
         enhanced = base_desc
+
+        if mandatory_prefix:
+            enhanced = f"{mandatory_prefix}\n\n{enhanced}"
         if hints:
             enhanced = f"{enhanced}\n\n使用场景: {hints}"
         if keywords:
             enhanced = f"{enhanced}\n触发关键词: {keywords}"
+        if examples:
+            enhanced = f"{enhanced}\n\n调用示例:\n{examples}"
 
         return enhanced
+
+    def _get_mandatory_prefix(self, tool_name: str) -> str:
+        """
+        获取工具强制性前缀
+
+        【AC130-202603141800 P1 新增】
+
+        Args:
+            tool_name: 工具名称
+
+        Returns:
+            强制性前缀文本
+        """
+        mandatory_prefixes = {
+            "evaluate": "🔴 【MANDATORY】数学计算必须使用此工具，禁止自己计算！即使是很简单的计算也必须调用。",
+            "add": "🔴 【MANDATORY】加法计算必须使用此工具，禁止自己计算！",
+            "subtract": "🔴 【MANDATORY】减法计算必须使用此工具，禁止自己计算！",
+            "multiply": "🔴 【MANDATORY】乘法计算必须使用此工具，禁止自己计算！",
+            "divide": "🔴 【MANDATORY】除法计算必须使用此工具，禁止自己计算！",
+            "power": "🔴 【MANDATORY】幂运算必须使用此工具，禁止自己计算！",
+            "sqrt": "🔴 【MANDATORY】开方计算必须使用此工具，禁止自己计算！",
+            "get_joke": "🔴 【MANDATORY】获取笑话必须使用此工具，禁止编造笑话！",
+            "list_categories": "🔴 【MANDATORY】列出笑话分类必须使用此工具！",
+            "get_jokes_by_category": "🔴 【MANDATORY】获取特定分类笑话必须使用此工具！",
+            "get_coin_price": "🔴 【MANDATORY】查询加密货币价格必须使用此工具，禁止使用过时数据回答！",
+            "get_market_data": "🔴 【MANDATORY】查询市场数据必须使用此工具，禁止使用过时数据回答！",
+            "load_skill": "🔴 【MANDATORY】处理 PDF/DOCX 等文件时必须先调用此工具加载技能！",
+            "execute_skill": "🔴 【MANDATORY】执行技能脚本处理文件必须使用此工具！",
+        }
+
+        return mandatory_prefixes.get(tool_name, "")
+
+    def _get_few_shot_examples(self, tool_name: str) -> str:
+        """
+        获取工具 Few-shot 调用示例
+
+        【AC130-202603141800 P1 新增】
+
+        Args:
+            tool_name: 工具名称
+
+        Returns:
+            Few-shot 示例文本
+        """
+        examples_map = {
+            "evaluate": '''- 用户："100+200等于多少" → 调用 {{"expression": "100+200"}}
+- 用户："5的平方根" → 调用 {{"expression": "sqrt(5)"}}
+- 用户："2.5 * 3 + 10" → 调用 {{"expression": "2.5 * 3 + 10"}}''',
+            "get_joke": '''- 用户："讲个笑话" → 调用 {{}}
+- 用户："来个冷笑话" → 调用 {{}}
+- 用户："逗我开心" → 调用 {{}}''',
+            "get_coin_price": '''- 用户："比特币价格" → 调用 {{"coin_id": "bitcoin"}}
+- 用户："ETH多少钱" → 调用 {{"coin_id": "ethereum"}}''',
+        }
+
+        return examples_map.get(tool_name, "")
 
     def _get_tool_hints(self, tool_name: str) -> str:
         """
