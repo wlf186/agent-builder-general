@@ -28,6 +28,8 @@ import {
   Zap,
   Hash,
   History,
+  AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +48,8 @@ import { InitializationGuideCard } from "@/components/InitializationGuideCard";
 import { EnvironmentReadyNotification } from "@/components/EnvironmentReadyNotification";
 import { useLocale } from "@/lib/LocaleContext";
 import { useEnvironmentStatus } from "@/hooks/useEnvironmentStatus";
+import { systemApi, CondaCheckResult } from "@/lib/systemApi";
+import { EnvironmentErrorDialog } from "@/components/EnvironmentErrorDialog";
 
 const API_BASE = "/api";
 
@@ -201,6 +205,37 @@ export default function Home() {
   // 环境就绪通知状态
   const [showReadyNotification, setShowReadyNotification] = useState(false);
   const [previousWasCreating, setPreviousWasCreating] = useState(false);
+
+  // Conda 检测状态
+  const [condaStatus, setCondaStatus] = useState<CondaCheckResult | null>(null);
+  const [condaChecking, setCondaChecking] = useState(false);
+  const [showCondaError, setShowCondaError] = useState(false);
+  const [environmentError, setEnvironmentError] = useState<any>(null);
+
+  // 检测 Conda 可用性（仅在创建视图时执行）
+  useEffect(() => {
+    if (currentView === "create" && !condaStatus && !condaChecking) {
+      setCondaChecking(true);
+      systemApi
+        .checkConda()
+        .then((result) => {
+          setCondaStatus(result);
+        })
+        .catch((err) => {
+          console.error("Conda 检测失败:", err);
+          setCondaStatus({
+            available: false,
+            path: null,
+            version: null,
+            error: "CHECK_FAILED",
+            message: "检测失败",
+          });
+        })
+        .finally(() => {
+          setCondaChecking(false);
+        });
+    }
+  }, [currentView, condaStatus, condaChecking]);
 
   // 监听环境状态变化，在从creating变为ready时显示通知
   useEffect(() => {
@@ -557,7 +592,46 @@ export default function Home() {
           : `Agent '${createdAgentName}' created successfully, initializing runtime environment...`;
         showToast(message);
       } else {
-        setCreateError(data.detail || (locale === "zh" ? "创建失败" : "Creation failed"));
+        const detail = data.detail || "";
+        // 检测是否为 Conda 环境错误
+        if (detail.includes("Conda") || detail.includes("conda") || data.error_code === "CONDA_NOT_FOUND") {
+          // 设置结构化错误信息并显示弹窗
+          setEnvironmentError({
+            error_code: data.error_code || "CONDA_NOT_FOUND",
+            error_type: "环境依赖缺失",
+            user_message: detail || "系统无法创建 Conda 环境",
+            solutions: [
+              {
+                title: "安装 Miniconda（推荐）",
+                steps: [
+                  "下载 Miniconda 安装脚本",
+                  "运行安装命令",
+                  "重启系统服务",
+                ],
+                estimated_time: "5-10 分钟",
+                commands: [
+                  "wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh",
+                  "bash Miniconda3-latest-Linux-x86_64.sh -b -p $HOME/miniconda3",
+                  "source ~/.bashrc",
+                ],
+              },
+              {
+                title: "使用系统 Python（功能受限）",
+                steps: [
+                  "请先安装 Conda 以获得完整功能支持",
+                  "系统 Python 模式将在后续版本支持",
+                ],
+                estimated_time: "N/A",
+              },
+            ],
+            technical_details: {
+              error_message: detail,
+            },
+          });
+          setShowCondaError(true);
+        } else {
+          setCreateError(detail || (locale === "zh" ? "创建失败" : "Creation failed"));
+        }
       }
     } catch {
       setCreateError(locale === "zh" ? "网络错误" : "Network error");
@@ -1108,6 +1182,71 @@ export default function Home() {
 
             {/* Form */}
             <div className="p-6 space-y-5">
+              {/* Conda 检测警告 */}
+              {!condaChecking && condaStatus && !condaStatus.available && (
+                <div className="bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-medium text-orange-900 dark:text-orange-100 text-sm">
+                        Conda 环境未检测到
+                      </h4>
+                      <p className="text-sm text-orange-800 dark:text-orange-200 mt-1">
+                        系统未检测到 Conda，智能体功能可能受限。
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => {
+                            setEnvironmentError({
+                              error_code: "CONDA_NOT_FOUND",
+                              error_type: "环境依赖缺失",
+                              user_message: condaStatus.message || "系统未检测到 Conda",
+                              solutions: [
+                                {
+                                  title: "安装 Miniconda（推荐）",
+                                  steps: [
+                                    "下载 Miniconda 安装脚本",
+                                    "运行安装命令",
+                                    "重启系统服务",
+                                  ],
+                                  estimated_time: "5-10 分钟",
+                                  commands: [
+                                    "wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh",
+                                    "bash Miniconda3-latest-Linux-x86_64.sh -b -p $HOME/miniconda3",
+                                    "source ~/.bashrc",
+                                  ],
+                                },
+                                {
+                                  title: "了解更多",
+                                  steps: [
+                                    "查看官方文档了解详细安装步骤",
+                                  ],
+                                  estimated_time: "5 分钟",
+                                },
+                              ],
+                            });
+                            setShowCondaError(true);
+                          }}
+                          className="text-sm text-orange-700 dark:text-orange-300 hover:text-orange-900 dark:hover:text-orange-100 font-medium flex items-center gap-1"
+                        >
+                          查看解决方案
+                          <ChevronRight size={14} />
+                        </button>
+                        <span className="text-xs text-orange-600 dark:text-orange-400 self-center">
+                          或继续创建（功能受限）
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {createError && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm">
+                  {createError}
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">{t("agentName")}</label>
                 <Input
@@ -1127,12 +1266,6 @@ export default function Home() {
                 />
               </div>
 
-              {createError && (
-                <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm">
-                  {createError}
-                </div>
-              )}
-
               <div className="flex gap-3 pt-2">
                 <Button variant="outline" onClick={() => setCurrentView("list")} className="flex-1">
                   {t("cancel")}
@@ -1145,6 +1278,13 @@ export default function Home() {
             </div>
           </Card>
         </motion.div>
+
+        {/* 环境错误弹窗 */}
+        <EnvironmentErrorDialog
+          isOpen={showCondaError}
+          onClose={() => setShowCondaError(false)}
+          error={environmentError}
+        />
       </div>
     );
   }

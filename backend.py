@@ -330,6 +330,26 @@ class AgentResponse(BaseModel):
 
 # === API 路由 ===
 
+# === 系统级 API ===
+
+@app.get("/api/system/check-conda")
+async def check_conda():
+    """
+    检测 Conda 是否可用
+
+    Returns:
+        {
+            "available": bool,           # conda 是否可用
+            "path": str | None,          # conda 可执行文件路径
+            "version": str | None,       # conda 版本
+            "error": str | None,         # 错误代码
+            "message": str               # 用户友好的消息
+        }
+    """
+    result = await EnvironmentManager.check_conda_available()
+    return result
+
+
 @app.get("/api/agents")
 async def list_agents():
     """获取所有 Agent 列表"""

@@ -179,8 +179,9 @@ class ConversationConfig(BaseModel):
 
 class EnvironmentType(str, Enum):
     """环境类型"""
-    CONDA = "conda"
-    DOCKER = "docker"  # 预留扩展
+    CONDA = "conda"              # Conda 虚拟环境
+    SYSTEM_PYTHON = "system"     # 系统 Python（降级模式）
+    DOCKER = "docker"            # 预留扩展
 
 
 class EnvironmentStatus(str, Enum):

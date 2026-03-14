@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 from datetime import datetime
+import shutil
 
 from .models import (
     AgentEnvironment,
@@ -19,11 +20,19 @@ from .models import (
 CONDA_PATH = os.environ.get("CONDA_EXE", "/opt/miniconda3/bin/conda")
 
 
-def get_conda_path() -> str:
-    """获取conda可执行文件路径"""
+def get_conda_path() -> Optional[str]:
+    """
+    获取conda可执行文件路径
+
+    Returns:
+        str: conda 可执行文件的完整路径，如果找不到则返回 None
+    """
     # 优先使用环境变量
     if os.environ.get("CONDA_EXE"):
-        return os.environ["CONDA_EXE"]
+        conda_exe = os.environ["CONDA_EXE"]
+        if os.path.isfile(conda_exe):
+            return conda_exe
+
     # 检查常见安装位置
     common_paths = [
         "/opt/miniconda3/bin/conda",
@@ -31,12 +40,19 @@ def get_conda_path() -> str:
         os.path.expanduser("~/miniconda3/bin/conda"),
         os.path.expanduser("~/anaconda3/bin/conda"),
         "/usr/local/miniconda3/bin/conda",
+        "/usr/local/anaconda3/bin/conda",
     ]
     for path in common_paths:
         if os.path.isfile(path):
             return path
-    # 回退到PATH中的conda
-    return "conda"
+
+    # 检查 PATH 中的 conda
+    import shutil
+    conda_in_path = shutil.which("conda")
+    if conda_in_path:
+        return conda_in_path
+
+    return None
 
 
 class EnvironmentError(Exception):
@@ -48,6 +64,77 @@ class EnvironmentManager:
     """环境管理器 - 管理Agent的Conda虚拟环境"""
 
     ENV_PREFIX = "env_"  # 环境名称前缀
+
+    @staticmethod
+    async def check_conda_available() -> Dict[str, any]:
+        """
+        检测 Conda 是否可用
+
+        Returns:
+            {
+                "available": bool,           # conda 是否可用
+                "path": str | None,          # conda 可执行文件路径
+                "version": str | None,       # conda 版本
+                "error": str | None          # 错误信息
+            }
+        """
+        conda_exe = get_conda_path()
+
+        if not conda_exe:
+            return {
+                "available": False,
+                "path": None,
+                "version": None,
+                "error": "CONDA_NOT_FOUND",
+                "message": "系统未检测到 Conda"
+            }
+
+        # 尝试执行 conda --version 验证可用性
+        try:
+            process = await asyncio.create_subprocess_exec(
+                conda_exe, "--version",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=5
+            )
+
+            if process.returncode == 0:
+                version_str = stdout.decode('utf-8', errors='replace').strip()
+                return {
+                    "available": True,
+                    "path": conda_exe,
+                    "version": version_str,
+                    "error": None,
+                    "message": "Conda 环境正常"
+                }
+            else:
+                return {
+                    "available": False,
+                    "path": conda_exe,
+                    "version": None,
+                    "error": "CONDA_EXECUTION_FAILED",
+                    "message": f"Conda 执行失败: {stderr.decode('utf-8', errors='replace')}"
+                }
+
+        except asyncio.TimeoutError:
+            return {
+                "available": False,
+                "path": conda_exe,
+                "version": None,
+                "error": "CONDA_TIMEOUT",
+                "message": "Conda 命令执行超时"
+            }
+        except Exception as e:
+            return {
+                "available": False,
+                "path": conda_exe,
+                "version": None,
+                "error": "CONDA_ERROR",
+                "message": f"Conda 检测出错: {str(e)}"
+            }
 
     def __init__(self, data_dir: Path, environments_dir: Path):
         """
@@ -94,8 +181,16 @@ class EnvironmentManager:
 
         Returns:
             (exit_code, stdout, stderr)
+
+        Raises:
+            EnvironmentError: conda 不可用时
         """
         conda_exe = get_conda_path()
+        if not conda_exe:
+            raise EnvironmentError(
+                "Conda 不可用。请安装 Miniconda 或 Anaconda，或在创建智能体时选择'系统 Python'模式。"
+            )
+
         cmd = [conda_exe] + args
 
         # 准备环境变量，确保conda可用
