@@ -376,6 +376,18 @@ class AgentEngine:
 
     async def _execute_tool(self, tool_name: str, tool_args: Dict) -> str:
         """执行工具调用"""
+        # ========================================
+        # 【AC130-202603142000 TC-001 修复】展开 kwargs 参数
+        # ========================================
+        # 当 LLM 使用动态 schema 时，参数可能被包装为 {'kwargs': {...}}
+        # 需要展开 kwargs 的内容作为实际参数传递给 MCP
+        actual_args = tool_args
+        if len(tool_args) == 1 and 'kwargs' in tool_args:
+            kwargs_value = tool_args['kwargs']
+            if isinstance(kwargs_value, dict):
+                actual_args = kwargs_value
+                print(f"[DEBUG] [agent_engine] 展开动态 schema 参数: {tool_args} -> {actual_args}")
+
         # 优先处理 skill 工具（按需加载）
         if tool_name == SkillTool.TOOL_NAME and self.skill_tool:
             # 支持两种参数名：skill_name（规范）和 skill（兼容）
@@ -411,8 +423,8 @@ class AgentEngine:
         try:
             import time
             timestamp = time.strftime("%H:%M:%S", time.localtime())
-            print(f"[TOOL] {timestamp} 调用工具: {tool_name}, args: {tool_args}")
-            result = await self.mcp_manager.call_tool(tool_name, tool_args)
+            print(f"[TOOL] {timestamp} 调用工具: {tool_name}, args: {actual_args}")
+            result = await self.mcp_manager.call_tool(tool_name, actual_args)
             print(f"[TOOL] {timestamp} 工具返回: {result[:100]}...")
             return result
         except Exception as e:
@@ -1523,6 +1535,9 @@ BEST: 编号"""
         """
         将原生 tool_calls 转换为统一格式
 
+        【AC130-202603141800 TC-001 修复】
+        处理 Pydantic 模型参数的序列化问题
+
         Args:
             native_tool_calls: LangChain 原生 tool_calls
 
@@ -1535,14 +1550,30 @@ BEST: 编号"""
             try:
                 # LangChain tool_call 格式
                 # tc.name: 工具名称
-                # tc.args: 参数字典
+                # tc.args: 参数字典（可能是 Pydantic 模型）
                 tool_name = tc.name if hasattr(tc, 'name') else tc.get('name', '')
 
                 # 获取参数
                 if hasattr(tc, 'args'):
                     tool_args = tc.args
+                    # ========================================
+                    # 【TC-001 修复】处理 Pydantic 模型参数
+                    # ========================================
+                    # 当 LLM 使用 bind_tools() 时，tc.args 可能是 Pydantic 模型实例
+                    # Pydantic 模型无法直接 JSON 序列化，需要转换为 dict
+                    if hasattr(tool_args, 'model_dump'):
+                        # pydantic v2
+                        tool_args = tool_args.model_dump()
+                    elif hasattr(tool_args, 'dict'):
+                        # pydantic v1
+                        tool_args = tool_args.dict()
                 elif isinstance(tc, dict):
                     tool_args = tc.get('args', {})
+                    # 同样处理 dict 中的 Pydantic 模型
+                    if hasattr(tool_args, 'model_dump'):
+                        tool_args = tool_args.model_dump()
+                    elif hasattr(tool_args, 'dict'):
+                        tool_args = tool_args.dict()
                 else:
                     tool_args = {}
 
