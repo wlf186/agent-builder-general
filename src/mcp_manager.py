@@ -322,12 +322,23 @@ class SSEServerConnection:
             return f"工具调用失败: {str(e)}"
 
     async def _call_tool_mcp_sse(self, tool_name: str, arguments: Dict[str, Any]) -> str:
-        """调用远程 MCP SSE 工具（支持自动重连、重试和超时）"""
+        """调用远程 MCP SSE 工具（支持自动重连、重试和超时）
+
+        【AC130-202603141800 TC-002 修复】
+        改进连接状态检查，处理 session 存在但已失效的情况
+        """
         max_retries = 2
 
         for attempt in range(max_retries + 1):
-            if not self._session:
-                # 没有连接，先建立连接
+            # ========================================
+            # 【TC-002 修复】改进连接状态检查
+            # ========================================
+            # 检查 session 是否为 None 或连接标志是否为 False
+            if not self._session or not self._connected:
+                # 连接无效或未连接，先建立连接
+                print(f"[SSE] 检测到连接断开（session={bool(self._session)}, connected={self._connected}），尝试重新连接...")
+                # 清理可能的旧连接
+                await self.disconnect()
                 if not await self.connect():
                     if attempt < max_retries:
                         print(f"[SSE] 连接失败，重试 {attempt + 1}/{max_retries}...")

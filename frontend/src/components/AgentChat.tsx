@@ -159,6 +159,16 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   // 这导致 useEffect 被多次触发，需要跟踪上次处理的会话
   const lastProcessedConversationRef = useRef<string | null>(null);
 
+  // 【修复-2603141800】使用 ref 跟踪运行状态，避免竞态条件
+  // isRunning state 有异步延迟，使用 ref 可以同步检查和设置
+  const isRunningRef = useRef(false);
+
+  // 【修复-2603141800】使用 ref 存储最新的 messages，避免 handleSend 闭包问题
+  const messagesRef = useRef<ChatMessage[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   // 自动滚动到底部
   const scrollToBottom = useCallback(() => {
     if (messagesContainerRef.current) {
@@ -244,6 +254,8 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
     // 只有当 initialMessages 不是 undefined 时才更新（允许空数组）
     if (initialMessages !== undefined) {
       setMessages(initialMessages);
+      // 【修复-2603141800】同步更新 messagesRef
+      messagesRef.current = initialMessages;
     }
   }, [initialMessages]);
 
@@ -276,6 +288,8 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
     if (prevAgentNameRef.current !== agentName) {
       // agentName 发生变化，重置所有状态
       setMessages([]);
+      // 【修复-2603141800】同步重置 messagesRef
+      messagesRef.current = [];
       setFileContext({ file_ids: [], file_infos: [] });
       setInputValue('');
       setHasError(false);
@@ -383,8 +397,16 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   }, []);
 
   const handleSend = useCallback(async () => {
+    // 【修复-2603141800】使用 ref 同步检查运行状态，避免竞态条件
+    // isRunningRef 是同步的，而 isRunning state 有异步延迟
+    if (isRunningRef.current) return;
+
     // 修改条件：允许只有文件没有文本，或者有文本
-    if ((!inputValue.trim() && pendingFiles.length === 0 && fileContext.file_ids.length === 0) || isRunning) return;
+    if (!inputValue.trim() && pendingFiles.length === 0 && fileContext.file_ids.length === 0) return;
+
+    // 【修复-2603141800】立即设置运行状态（使用 ref 和 state）
+    isRunningRef.current = true;
+    setIsRunning(true);
 
     const userContent = inputValue.trim();
     const currentPendingFiles = [...pendingFiles];  // 保存当前待发送文件
@@ -449,7 +471,9 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
     };
 
     const assistantMsgId = `msg-${Date.now() + 1}`;
-    setMessages((prev) => [...prev, userMsg, {
+
+    // 【修复-2603141800】创建新的消息数组
+    const assistantMsg: ChatMessage = {
       id: assistantMsgId,
       role: 'assistant',
       content: '',
@@ -458,7 +482,12 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
       isThinkingExpanded: false,
       loadedSkills: [],
       skillStates: []
-    }]);
+    };
+    const newMessages = [...messagesRef.current, userMsg, assistantMsg];
+
+    // 【修复-2603141800】同时更新 state 和 ref
+    messagesRef.current = newMessages;
+    setMessages(newMessages);
     setIsRunning(true);
     streamingContentRef.current = "";
     streamingThinkingRef.current = "";
@@ -469,8 +498,9 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
+    // 【修复-2603141800】使用 ref 获取最新的 messages，避免闭包中的旧值
     // 构建历史消息（根据 shortTermMemory 截取）
-    const historyMessages = messages.slice(-(shortTermMemory * 2)).map(msg => ({
+    const historyMessages = messagesRef.current.slice(-(shortTermMemory * 2)).map(msg => ({
       role: msg.role,
       content: msg.content
     }));
@@ -835,24 +865,25 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
         );
       }
     } finally {
+      // 【修复-2603141800】同步重置运行状态 ref
+      isRunningRef.current = false;
       setIsRunning(false);
       abortControllerRef.current = null;
 
-      // 【修复】保存会话消息到后端
-      // 使用 ref 存储待处理的更新，然后在 useEffect 中调用 onConversationChange
-      // 这避免了在 setMessages 回调中直接调用导致的渲染期间 setState 错误
-      setMessages((currentMessages) => {
-        if (currentMessages.length > 0) {
-          // 存储待处理的更新，useEffect 会在渲染完成后处理
-          pendingConversationUpdateRef.current = {
-            conversationId: activeConversationId,
-            messages: currentMessages
-          };
-        }
-        return currentMessages;
-      });
+      // 【修复-2603141800】保存会话消息到后端
+      // 同时更新 messagesRef 确保一致性
+      const finalMessages = messagesRef.current;
+      if (finalMessages.length > 0) {
+        // 存储待处理的更新，useEffect 会在渲染完成后处理
+        pendingConversationUpdateRef.current = {
+          conversationId: activeConversationId,
+          messages: finalMessages
+        };
+      }
     }
-  }, [inputValue, isRunning, agentName, locale, messages, shortTermMemory, scrollToBottom, t, conversationId, onConversationChange, onCreateConversation, pendingFiles, fileContext, uploadPendingFiles]);
+  // 【修复-2603141800】从依赖项中移除 messages，使用 ref 获取最新值
+  // 这避免了每次 messages 变化时重建 handleSend 函数
+  }, [inputValue, agentName, locale, shortTermMemory, scrollToBottom, t, conversationId, onConversationChange, onCreateConversation, pendingFiles, fileContext, uploadPendingFiles]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {

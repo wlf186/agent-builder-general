@@ -86,26 +86,39 @@ class AgentInstance:
             return False
 
     async def _ensure_mcp_connections(self):
-        """确保 MCP 连接有效，如果连接断开则重新连接"""
+        """确保 MCP 连接有效，如果连接断开则重新连接
+
+        【AC130-202603141800 TC-002 修复】
+        添加实际的连接状态检查和自动重连机制
+        """
         if not self.mcp_manager:
             return
 
         for name, server in self.mcp_manager.servers.items():
             # 检查 SSE 连接是否还有效
-            if hasattr(server, '_session') and server._session:
-                try:
-                    # 尝试发送一个简单的 ping 请求来检查连接
-                    # 如果连接断开，这会抛出异常
-                    pass  # MCP 协议目前没有 ping，我们依赖工具调用时检测
-                except Exception as e:
-                    print(f"MCP 服务 {name} 连接可能已断开: {e}")
-                    # 尝试重新连接
+            if hasattr(server, '_session'):
+                # ========================================
+                # 【TC-002 修复】实际连接状态检查
+                # ========================================
+                # 检查 session 是否为 None 或连接标志是否为 False
+                is_valid = (
+                    server._session is not None and
+                    server.is_connected
+                )
+
+                if not is_valid:
+                    print(f"[MCP] 服务 {name} 连接已断开，尝试重新连接...")
                     try:
+                        # 先清理旧连接
                         await server.disconnect()
-                        await server.connect()
-                        print(f"MCP 服务 {name} 已重新连接")
-                    except Exception as reconnect_error:
-                        print(f"MCP 服务 {name} 重连失败: {reconnect_error}")
+                        # 尝试重新连接
+                        success = await server.connect()
+                        if success:
+                            print(f"[MCP] 服务 {name} 重新连接成功 ({len(server.tools)} 工具)")
+                        else:
+                            print(f"[MCP] 服务 {name} 重新连接失败")
+                    except Exception as e:
+                        print(f"[MCP] 服务 {name} 重新连接异常: {e}")
 
     async def chat(self, message: str, history: List[Dict] = None) -> str:
         """对话"""
