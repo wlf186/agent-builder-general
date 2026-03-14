@@ -46,7 +46,9 @@ import { ConversationDrawer } from "@/components/ConversationDrawer";
 import { EnvironmentBanner } from "@/components/EnvironmentBanner";
 import { InitializationGuideCard } from "@/components/InitializationGuideCard";
 import { EnvironmentReadyNotification } from "@/components/EnvironmentReadyNotification";
+import { SubAgentSelector } from "@/components/SubAgentSelector";
 import { useLocale } from "@/lib/LocaleContext";
+import { CycleDependencyError } from "@/types";
 import { useEnvironmentStatus } from "@/hooks/useEnvironmentStatus";
 import { systemApi, CondaCheckResult } from "@/lib/systemApi";
 import { EnvironmentErrorDialog } from "@/components/EnvironmentErrorDialog";
@@ -180,6 +182,10 @@ export default function Home() {
   const [skillUploadDialogOpen, setSkillUploadDialogOpen] = useState(false);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
 
+  // 【AC130 新增】Sub-Agents
+  const [selectedSubAgents, setSelectedSubAgents] = useState<string[]>([]);
+  const [cycleError, setCycleError] = useState<CycleDependencyError | null>(null);
+
   // 展开/收起状态
   const [sidebarMcpExpanded, setSidebarMcpExpanded] = useState(true);
   const [sidebarModelServicesExpanded, setSidebarModelServicesExpanded] = useState(true);
@@ -189,6 +195,7 @@ export default function Home() {
   const [configAdvancedExpanded, setConfigAdvancedExpanded] = useState(false);
   const [configToolsExpanded, setConfigToolsExpanded] = useState(true);
   const [configSkillsExpanded, setConfigSkillsExpanded] = useState(true);
+  const [configSubAgentsExpanded, setConfigSubAgentsExpanded] = useState(false);  // 【AC130 新增】
 
   // 巻加历史会话相关状态
   const [conversationDrawerOpen, setConversationDrawerOpen] = useState(false);
@@ -549,6 +556,8 @@ export default function Home() {
       setPlanningMode(config.planning_mode ?? "react");
       setSelectedMcpServices(config.mcp_services || []);
       setSelectedSkills(config.skills || []);
+      setSelectedSubAgents(config.sub_agents || []);  // 【AC130 新增】加载子 Agent
+      setCycleError(null);  // 【AC130 新增】重置循环依赖错误
       setCurrentView("config");
     } catch (e) {
       console.error("Failed to load config:", e);
@@ -585,6 +594,8 @@ export default function Home() {
         setPlanningMode("react");
         setSelectedMcpServices([]);
         setSelectedSkills([]);
+        setSelectedSubAgents([]);  // 【AC130 新增】重置子 Agent
+        setCycleError(null);  // 【AC130 新增】重置循环依赖错误
         setCurrentView("config");
         // P0: 显示创建成功Toast，包含智能体名称和环境初始化提示
         const message = locale === "zh"
@@ -644,6 +655,7 @@ export default function Home() {
     if (!selectedAgent) return;
 
     setIsSaving(true);
+    setCycleError(null);  // 【AC130 新增】清除旧的循环依赖错误
     try {
       const res = await fetch(`${API_BASE}/agents/${selectedAgent}`, {
         method: "PUT",
@@ -657,12 +669,26 @@ export default function Home() {
           planning_mode: planningMode,
           mcp_services: selectedMcpServices,
           skills: selectedSkills,
+          sub_agents: selectedSubAgents,  // 【AC130 新增】子 Agent 列表
         }),
       });
       if (res.ok) {
         showToast(locale === "zh" ? "配置已保存" : "Configuration saved");
         // 刷新智能体列表，确保卡片显示最新数据
         await loadAgents();
+      } else {
+        // 【AC130 新增】处理错误响应，检测循环依赖
+        const data = await res.json();
+        if (data.detail?.error === "circular_dependency" || data.error === "circular_dependency") {
+          setCycleError({
+            error: data.detail?.error || data.error,
+            message: data.detail?.message || data.message || (locale === "zh" ? "检测到循环依赖" : "Circular dependency detected"),
+            cycle_path: data.detail?.cycle_path || data.cycle_path || [],
+          });
+          showToast(locale === "zh" ? "保存失败：存在循环依赖" : "Save failed: Circular dependency detected", "error");
+        } else {
+          showToast(data.detail || (locale === "zh" ? "保存失败" : "Save failed"), "error");
+        }
       }
     } catch {
       showToast(locale === "zh" ? "保存失败" : "Save failed", "error");
@@ -1818,6 +1844,22 @@ export default function Home() {
             </CardContent>
             )}
           </Card>
+
+          {/* 【AC130 新增】Sub-Agents Config - 环境初始化期间禁用 */}
+          <SubAgentSelector
+            availableAgents={agents.map(agent => ({
+              name: agent.name,
+              persona: agent.description || "",
+              model_service: agent.model_service || null,
+              skills: [],
+              mcp_services: [],
+            }))}
+            currentAgentName={selectedAgent || undefined}
+            selectedAgents={selectedSubAgents}
+            onSelectionChange={setSelectedSubAgents}
+            cycleError={cycleError}
+            disabled={isEnvironmentCreating || isSaving}
+          />
         </motion.div>
 
         {/* Right Panel - Chat - 环境初始化期间禁用 */}

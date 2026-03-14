@@ -72,6 +72,8 @@ from src.environment_manager import EnvironmentManager, EnvironmentError
 from src.environment_creator import EnvironmentCreator
 from src.file_storage_manager import FileStorageManager, FileStorageError
 from src.execution_engine import ExecutionEngine, ExecutionError
+# 【AC130-202603142210】循环检测器
+from src.cycle_detector import CycleDetector
 
 
 # 初始化
@@ -236,6 +238,18 @@ async def shutdown_event():
 class CreateAgentRequest(BaseModel):
     name: str
     description: str = ""
+    # 【AC130-202603141800】支持创建时指定子Agent
+    model_service: Optional[str] = None
+    temperature: float = 0.7
+    max_iterations: int = 10
+    short_term_memory: int = 5
+    planning_mode: str = "react"
+    mcp_services: List[str] = []
+    skills: List[str] = []
+    sub_agents: List[str] = []
+    sub_agent_timeout: int = 60
+    sub_agent_max_retries: int = 1
+    sub_agent_max_concurrent: int = 3
 
 
 class UpdateAgentRequest(BaseModel):
@@ -251,6 +265,13 @@ class UpdateAgentRequest(BaseModel):
     planning_mode: str = "react"
     mcp_services: List[str] = []
     skills: List[str] = []
+    # ====================================================================
+    # 【AC130-202603142210】Agent-as-a-Tool: 子Agent字段
+    # ====================================================================
+    sub_agents: List[str] = []
+    sub_agent_timeout: int = 60
+    sub_agent_max_retries: int = 1
+    sub_agent_max_concurrent: int = 3
 
 
 class CreateModelServiceRequest(BaseModel):
@@ -390,9 +411,51 @@ async def create_agent(req: CreateAgentRequest):
     if req.name in manager.list_agents():
         raise HTTPException(status_code=400, detail="Agent名称已存在")
 
+    # 【AC130-202603141800】创建时进行循环检测
+    if req.sub_agents:
+        # 获取所有现有Agent（不包括正在创建的）
+        all_agent_names = list(manager.list_agents())
+
+        # 构建调用图
+        configs = {}
+        for agent_name in all_agent_names:
+            config = manager.get_config(agent_name)
+            if config:
+                configs[agent_name] = getattr(config, 'sub_agents', []) or []
+
+        # 添加正在创建的Agent
+        configs[req.name.strip()] = req.sub_agents
+
+        # 检测循环
+        detector = CycleDetector(all_agent_names + [req.name.strip()])
+        detector.build_from_configs(configs)
+
+        cycle_result = detector.validate_config(req.name.strip(), req.sub_agents)
+        if cycle_result.has_cycle:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "循环依赖检测失败",
+                    "message": cycle_result.message,
+                    "cycle_path": cycle_result.cycle_path
+                }
+            )
+
     config = AgentConfig(
         name=req.name.strip(),
-        persona=req.description or "你是一个有帮助的AI助手。"
+        persona=req.description or "你是一个有帮助的AI助手。",
+        model_service=req.model_service,
+        temperature=req.temperature,
+        max_iterations=req.max_iterations,
+        short_term_memory=req.short_term_memory,
+        planning_mode=PlanningMode(req.planning_mode),
+        mcp_services=req.mcp_services,
+        skills=req.skills,
+        # 【AC130-202603141800】子Agent字段
+        sub_agents=req.sub_agents,
+        sub_agent_timeout=req.sub_agent_timeout,
+        sub_agent_max_retries=req.sub_agent_max_retries,
+        sub_agent_max_concurrent=req.sub_agent_max_concurrent
     )
 
     if manager.create_agent_config(config):
@@ -443,7 +506,12 @@ async def get_agent(name: str):
         "short_term_memory": config.short_term_memory,
         "planning_mode": config.planning_mode.value,
         "mcp_services": config.mcp_services,
-        "skills": config.skills
+        "skills": config.skills,
+        # 【AC130-202603141800】返回子Agent配置
+        "sub_agents": getattr(config, 'sub_agents', []) or [],
+        "sub_agent_timeout": getattr(config, 'sub_agent_timeout', 60),
+        "sub_agent_max_retries": getattr(config, 'sub_agent_max_retries', 1),
+        "sub_agent_max_concurrent": getattr(config, 'sub_agent_max_concurrent', 3)
     }
 
 
@@ -452,6 +520,39 @@ async def update_agent(name: str, req: UpdateAgentRequest):
     """更新 Agent 配置"""
     if name not in manager.list_agents():
         raise HTTPException(status_code=404, detail="Agent不存在")
+
+    # ====================================================================
+    # 【AC130-202603142210】循环检测：保存前验证子Agent配置
+    # ====================================================================
+    if req.sub_agents:
+        # 获取所有Agent名称
+        all_agent_names = list(manager.list_agents())
+
+        # 构建当前调用图（不包括正在更新的Agent）
+        configs = {}
+        for agent_name in all_agent_names:
+            if agent_name != name:  # 排除当前正在更新的Agent
+                config = manager.get_config(agent_name)
+                if config:
+                    configs[agent_name] = getattr(config, 'sub_agents', []) or []
+
+        # 添加正在更新的Agent的新配置
+        configs[name] = req.sub_agents
+
+        # 检测循环
+        detector = CycleDetector(all_agent_names)
+        detector.build_from_configs(configs)
+
+        cycle_result = detector.validate_config(name, req.sub_agents)
+        if cycle_result.has_cycle:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "循环依赖检测失败",
+                    "message": cycle_result.message,
+                    "cycle_path": cycle_result.cycle_path
+                }
+            )
 
     # 获取现有配置以保留未提供的字段
     existing_config = manager.get_config(name)
@@ -469,7 +570,12 @@ async def update_agent(name: str, req: UpdateAgentRequest):
         short_term_memory=req.short_term_memory,
         planning_mode=PlanningMode(req.planning_mode),
         mcp_services=req.mcp_services,
-        skills=req.skills
+        skills=req.skills,
+        # 【AC130-202603142210】子Agent字段
+        sub_agents=req.sub_agents,
+        sub_agent_timeout=req.sub_agent_timeout,
+        sub_agent_max_retries=req.sub_agent_max_retries,
+        sub_agent_max_concurrent=req.sub_agent_max_concurrent
     )
 
     if manager.update_agent_config(name, config):
@@ -500,6 +606,122 @@ async def delete_agent(name: str):
         return {"success": True}
     else:
         raise HTTPException(status_code=404, detail="Agent不存在")
+
+
+# ========================================================================
+# 【AC130-202603142210】Agent-as-a-Tool: 子Agent相关API端点
+# ========================================================================
+
+class ValidateSubAgentsRequest(BaseModel):
+    """验证子Agent配置请求"""
+    sub_agents: List[str] = []
+
+
+class ValidateSubAgentsResponse(BaseModel):
+    """验证子Agent配置响应"""
+    valid: bool
+    message: str = ""
+    cycle_path: List[str] = []
+
+
+@app.get("/api/agents/{name}/call-graph")
+async def get_agent_call_graph(name: str):
+    """获取Agent的调用关系图
+
+    返回当前Agent调用其他Agent的关系，以及被哪些Agent调用。
+    """
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    # 获取所有Agent配置
+    all_agent_names = list(manager.list_agents())
+
+    # 构建调用图
+    configs = {}
+    for agent_name in all_agent_names:
+        config = manager.get_config(agent_name)
+        if config:
+            configs[agent_name] = getattr(config, 'sub_agents', []) or []
+
+    # 创建循环检测器并构建调用图
+    detector = CycleDetector(all_agent_names)
+    detector.build_from_configs(configs)
+
+    # 获取调用图
+    call_graph = detector.get_call_graph()
+
+    # 获取特定Agent的摘要
+    summary = detector.get_agent_summary(name)
+
+    return {
+        "call_graph": call_graph.to_dict(),
+        "agent_summary": summary
+    }
+
+
+@app.post("/api/agents/{name}/sub-agents/validate", response_model=ValidateSubAgentsResponse)
+async def validate_sub_agents(name: str, req: ValidateSubAgentsRequest):
+    """验证子Agent配置（循环依赖检测）
+
+    在保存Agent配置前调用此端点验证子Agent配置是否会导致循环依赖。
+    """
+    if name not in manager.list_agents():
+        raise HTTPException(status_code=404, detail="Agent不存在")
+
+    # 获取所有Agent名称
+    all_agent_names = list(manager.list_agents())
+
+    # 构建当前调用图（不包括正在验证的Agent）
+    configs = {}
+    for agent_name in all_agent_names:
+        if agent_name != name:
+            config = manager.get_config(agent_name)
+            if config:
+                configs[agent_name] = getattr(config, 'sub_agents', []) or []
+
+    # 添加正在验证的Agent的新配置
+    configs[name] = req.sub_agents
+
+    # 检测循环
+    detector = CycleDetector(all_agent_names)
+    detector.build_from_configs(configs)
+
+    cycle_result = detector.validate_config(name, req.sub_agents)
+
+    return ValidateSubAgentsResponse(
+        valid=not cycle_result.has_cycle,
+        message=cycle_result.message or "配置有效，无循环依赖",
+        cycle_path=cycle_result.cycle_path
+    )
+
+
+@app.get("/api/agents/call-graph")
+async def get_global_call_graph():
+    """获取全局Agent调用关系图
+
+    返回系统中所有Agent之间的调用关系。
+    """
+    all_agent_names = list(manager.list_agents())
+
+    # 构建调用图
+    configs = {}
+    for agent_name in all_agent_names:
+        config = manager.get_config(agent_name)
+        if config:
+            configs[agent_name] = getattr(config, 'sub_agents', []) or []
+
+    # 创建循环检测器并构建调用图
+    detector = CycleDetector(all_agent_names)
+    detector.build_from_configs(configs)
+
+    # 检测循环
+    cycle_result = detector.detect_cycle()
+
+    return {
+        "call_graph": detector.get_call_graph().to_dict(),
+        "has_cycle": cycle_result.has_cycle,
+        "cycle_message": cycle_result.message if cycle_result.has_cycle else None
+    }
 
 
 @app.post("/api/agents/{name}/chat")

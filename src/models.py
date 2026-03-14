@@ -78,6 +78,31 @@ class AgentConfig(BaseModel):
     planning_mode: PlanningMode = Field(default=PlanningMode.REACT, description="规划模式")
     temperature: float = Field(default=0.7, description="温度参数")
     short_term_memory: int = Field(default=5, description="短期记忆轮次(0-50)")
+    # ========================================================================
+    # Agent-as-a-Tool: 子 Agent 配置 (AC130-202603142210)
+    # ========================================================================
+    sub_agents: List[str] = Field(
+        default_factory=list,
+        description="可调用的子Agent名称列表"
+    )
+    sub_agent_timeout: int = Field(
+        default=60,
+        ge=10,
+        le=300,
+        description="子Agent调用超时时间（秒）"
+    )
+    sub_agent_max_retries: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="子Agent调用失败重试次数"
+    )
+    sub_agent_max_concurrent: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="最大并发子Agent调用数"
+    )
 
 
 class MCPConfig(BaseModel):

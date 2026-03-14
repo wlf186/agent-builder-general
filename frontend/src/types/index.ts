@@ -160,3 +160,246 @@ export interface SkillExecutionInfo {
   startedAt?: number;         // 开始时间戳
   finishedAt?: number;        // 结束时间戳
 }
+
+// ============================================================================
+// 【AC130】Agent-as-a-Tool 多 Agent 嵌套功能类型定义
+// ============================================================================
+
+/**
+ * 子 Agent 调用状态
+ */
+export type SubAgentCallStatus =
+  | 'pending'     // 等待中
+  | 'running'     // 运行中
+  | 'completed'   // 完成
+  | 'failed'      // 失败
+  | 'timeout';    // 超时
+
+/**
+ * 子 Agent 调用记录
+ */
+export interface SubAgentCallRecord {
+  id: string;                    // 调用 ID (UUID)
+  agentName: string;             // 子 Agent 名称
+  message: string;               // 发送给子 Agent 的消息
+  status: SubAgentCallStatus;    // 调用状态
+  result?: string;               // 调用结果
+  error?: string;                // 错误信息
+  errorType?: 'timeout' | 'recursion' | 'not_found' | 'exception';  // 错误类型
+  durationMs?: number;           // 耗时（毫秒）
+  tokens?: {                     // Token 统计
+    input: number;
+    output: number;
+    total: number;
+  };
+  startTime: number;             // 开始时间戳
+  endTime?: number;              // 结束时间戳
+}
+
+/**
+ * 子 Agent 信息（用于配置）
+ */
+export interface SubAgentInfo {
+  name: string;                  // Agent 名称
+  persona: string;               // Agent 人设
+  model_service: string | null;  // 模型服务
+  skills: string[];              // 启用的技能
+  mcp_services: string[];        // 启用的 MCP 服务
+  sub_agents?: string[];         // 该 Agent 的子 Agent（用于循环依赖检测）
+}
+
+/**
+ * Agent 配置扩展（包含子 Agent）
+ */
+export interface AgentConfigWithSubAgents {
+  name: string;
+  persona: string;
+  model_service: string | null;
+  temperature: number;
+  max_iterations: number;
+  short_term_memory: number;
+  planning_mode: string;
+  mcp_services: string[];
+  skills: string[];
+  sub_agents?: string[];         // 【AC130 新增】子 Agent 名称列表
+  sub_agent_timeout?: number;    // 【AC130 新增】子 Agent 调用超时（秒）
+  sub_agent_max_retries?: number; // 【AC130 新增】子 Agent 调用最大重试次数
+}
+
+/**
+ * 调用链路追踪摘要
+ */
+export interface CallTraceSummary {
+  traceId: string;               // 链路 ID
+  totalTokens: number;           // 总 Token 消耗
+  totalDurationMs: number;       // 总耗时（毫秒）
+  callCount: number;             // 调用次数
+}
+
+/**
+ * 循环依赖错误信息
+ */
+export interface CycleDependencyError {
+  error: string;                 // 错误类型 "circular_dependency"
+  message: string;               // 用户友好的错误消息
+  cycle_path: string[];          // 循环路径（Agent 名称列表）
+}
+
+/**
+ * SSE 流式事件类型（扩展支持子 Agent 事件）
+ */
+export type StreamEventType =
+  | 'thinking'           // 思考过程
+  | 'content'            // 最终回答内容
+  | 'tool_call'          // 工具调用开始
+  | 'tool_result'        // 工具执行结果
+  | 'skill_loading'      // 技能加载中
+  | 'skill_loaded'       // 技能加载完成
+  | 'metrics'            // 性能指标
+  | 'trace_start'        // 【AC130 新增】链路追踪开始
+  | 'sub_agent_call'     // 【AC130 新增】子 Agent 调用开始
+  | 'sub_agent_result'   // 【AC130 新增】子 Agent 调用结果
+  | 'sub_agent_error'    // 【AC130 新增】子 Agent 调用错误
+  | 'trace_end';         // 【AC130 新增】链路追踪结束
+
+/**
+ * SSE 流式事件基础类型
+ */
+export interface StreamEvent {
+  type: StreamEventType;
+}
+
+/**
+ * 思考过程事件
+ */
+export interface ThinkingEvent extends StreamEvent {
+  type: 'thinking';
+  content: string;
+}
+
+/**
+ * 内容事件（逐字符流式输出）
+ */
+export interface ContentEvent extends StreamEvent {
+  type: 'content';
+  content: string;
+}
+
+/**
+ * 工具调用事件
+ */
+export interface ToolCallEvent extends StreamEvent {
+  type: 'tool_call';
+  name: string;
+  call_id?: string;
+  service?: string;
+  args?: Record<string, any>;
+}
+
+/**
+ * 工具结果事件
+ */
+export interface ToolResultEvent extends StreamEvent {
+  type: 'tool_result';
+  name: string;
+  call_id?: string;
+  result: string;
+}
+
+/**
+ * 技能加载事件
+ */
+export interface SkillLoadingEvent extends StreamEvent {
+  type: 'skill_loading';
+  skill_name: string;
+}
+
+/**
+ * 技能加载完成事件
+ */
+export interface SkillLoadedEvent extends StreamEvent {
+  type: 'skill_loaded';
+  skill_name: string;
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * 性能指标事件
+ */
+export interface MetricsEvent extends StreamEvent {
+  type: 'metrics';
+  first_token_latency: number;
+  total_tokens: number;
+  total_duration: number;
+}
+
+/**
+ * 【AC130 新增】链路追踪开始事件
+ */
+export interface TraceStartEvent extends StreamEvent {
+  type: 'trace_start';
+  trace_id: string;
+}
+
+/**
+ * 【AC130 新增】子 Agent 调用事件
+ */
+export interface SubAgentCallEvent extends StreamEvent {
+  type: 'sub_agent_call';
+  agent_name: string;
+  message: string;
+  timeout?: number;
+}
+
+/**
+ * 【AC130 新增】子 Agent 结果事件
+ */
+export interface SubAgentResultEvent extends StreamEvent {
+  type: 'sub_agent_result';
+  agent_name: string;
+  result: string;
+  duration_ms: number;
+  tokens?: {
+    input: number;
+    output: number;
+    total: number;
+  };
+}
+
+/**
+ * 【AC130 新增】子 Agent 错误事件
+ */
+export interface SubAgentErrorEvent extends StreamEvent {
+  type: 'sub_agent_error';
+  agent_name: string;
+  error: string;
+  error_type: 'timeout' | 'recursion' | 'not_found' | 'exception';
+}
+
+/**
+ * 【AC130 新增】链路追踪结束事件
+ */
+export interface TraceEndEvent extends StreamEvent {
+  type: 'trace_end';
+  trace_id: string;
+  total_tokens: number;
+  total_duration_ms: number;
+}
+
+/**
+ * 联合类型：所有可能的 SSE 事件
+ */
+export type ServerSentEvent =
+  | ThinkingEvent
+  | ContentEvent
+  | ToolCallEvent
+  | ToolResultEvent
+  | SkillLoadingEvent
+  | SkillLoadedEvent
+  | MetricsEvent
+  | TraceStartEvent
+  | SubAgentCallEvent
+  | SubAgentResultEvent
+  | SubAgentErrorEvent
+  | TraceEndEvent;

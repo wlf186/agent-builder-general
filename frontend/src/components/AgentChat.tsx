@@ -33,8 +33,9 @@ import { useLocale } from '@/lib/LocaleContext';
 import { ChevronDown, ChevronRight, Wrench, Lightbulb, Loader2, Clock, Zap, Hash, Paperclip, FileText, FileSpreadsheet, Image, File, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { PendingFile, FileAttachment, DEFAULT_FILE_CONFIG, formatFileSize, FileUploadConfig, FileContext, UploadedFile } from '@/types';
+import { PendingFile, FileAttachment, DEFAULT_FILE_CONFIG, formatFileSize, FileUploadConfig, FileContext, UploadedFile, SubAgentCallRecord } from '@/types';
 import { FileUploader, UploadButton } from '@/components/FileUploader';
+import { SubAgentCallCard } from '@/components/SubAgentCallCard';
 import { uploadFile } from '@/lib/fileApi';
 
 const API_BASE = '/api';
@@ -99,6 +100,8 @@ interface ChatMessage {
   skillStates?: SkillExecutionState[];
   // 当前正在加载的技能
   loadingSkill?: string;
+  // 【AC130 新增】子 Agent 调用记录
+  subAgentCalls?: SubAgentCallRecord[];
 }
 
 interface PerformanceMetrics {
@@ -146,6 +149,8 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   const streamingLoadedSkillsRef = useRef<string[]>([]);
   // T017: Skill 执行状态
   const streamingSkillStatesRef = useRef<SkillExecutionState[]>([]);
+  // 【AC130 新增】子 Agent 调用记录
+  const streamingSubAgentCallsRef = useRef<SubAgentCallRecord[]>([]);
 
   // 【修复】用于在渲染完成后安全地调用 onConversationChange
   // 避免 "Cannot update a component while rendering a different component" 错误
@@ -494,6 +499,7 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
     streamingToolCallsRef.current = [];
     streamingLoadedSkillsRef.current = [];
     streamingSkillStatesRef.current = [];  // T017: 重置 Skill 执行状态
+    streamingSubAgentCallsRef.current = [];  // 【AC130 新增】重置子 Agent 调用记录
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
@@ -819,6 +825,84 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                       : msg
                   )
                 );
+              } else if (data.type === 'sub_agent_call') {
+                // 【AC130 新增】子 Agent 调用开始
+                const agentName = data.agent_name;
+                const message = data.message;
+                const callId = `sub-${Date.now()}-${agentName}`;
+
+                const newCall: SubAgentCallRecord = {
+                  id: callId,
+                  agentName,
+                  message,
+                  status: 'running',
+                  startTime: Date.now(),
+                };
+
+                streamingSubAgentCallsRef.current = [...streamingSubAgentCallsRef.current, newCall];
+
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMsgId
+                      ? { ...msg, subAgentCalls: [...streamingSubAgentCallsRef.current] }
+                      : msg
+                  )
+                );
+              } else if (data.type === 'sub_agent_result') {
+                // 【AC130 新增】子 Agent 调用结果
+                const agentName = data.agent_name;
+                const result = data.result;
+                const durationMs = data.duration_ms;
+                const tokens = data.tokens;
+
+                streamingSubAgentCallsRef.current = streamingSubAgentCallsRef.current.map(call => {
+                  if (call.agentName === agentName && call.status === 'running') {
+                    return {
+                      ...call,
+                      status: 'completed',
+                      result: result,
+                      durationMs,
+                      tokens,
+                      endTime: Date.now(),
+                    };
+                  }
+                  return call;
+                });
+
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMsgId
+                      ? { ...msg, subAgentCalls: [...streamingSubAgentCallsRef.current] }
+                      : msg
+                  )
+                );
+              } else if (data.type === 'sub_agent_error') {
+                // 【AC130 新增】子 Agent 调用错误
+                const agentName = data.agent_name;
+                const error = data.error;
+                const errorType = data.error_type;
+
+                streamingSubAgentCallsRef.current = streamingSubAgentCallsRef.current.map(call => {
+                  if (call.agentName === agentName && call.status === 'running') {
+                    return {
+                      ...call,
+                      status: errorType === 'timeout' ? 'timeout' : 'failed',
+                      error,
+                      errorType,
+                      endTime: Date.now(),
+                      durationMs: Date.now() - call.startTime,
+                    };
+                  }
+                  return call;
+                });
+
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMsgId
+                      ? { ...msg, subAgentCalls: [...streamingSubAgentCallsRef.current] }
+                      : msg
+                  )
+                );
               } else if (data.content) {
                 // 兼容旧格式
                 streamingContentRef.current += data.content;
@@ -1132,6 +1216,11 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                 )}
               </div>
             ))}
+
+            {/* 【AC130 新增】子 Agent 调用状态区域 - 使用独立组件 */}
+            {msg.subAgentCalls && msg.subAgentCalls.length > 0 && (
+              <SubAgentCallCard calls={msg.subAgentCalls} locale={locale} />
+            )}
           </div>
         )}
       </div>

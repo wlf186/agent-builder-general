@@ -20,9 +20,11 @@ from .skill_registry import SkillRegistry
 from .skill_loader import SkillLoader
 from .skill_tool import SkillTool
 from .model_service_registry import ModelServiceRegistry
+from .cycle_detector import CycleDetector
 
 if TYPE_CHECKING:
     from .execution_engine import ExecutionEngine
+    from .agent_manager import AgentManager
 
 
 # 工具调用策略枚举
@@ -60,7 +62,8 @@ class AgentEngine:
         skill_registry: Optional[SkillRegistry] = None,
         skills_dir: Path = None,
         model_service_registry: Optional[ModelServiceRegistry] = None,
-        execution_engine: Optional["ExecutionEngine"] = None
+        execution_engine: Optional["ExecutionEngine"] = None,
+        agent_manager: Optional["AgentManager"] = None
     ):
         self.config = config
         self.mcp_manager = mcp_manager
@@ -68,6 +71,7 @@ class AgentEngine:
         self.skills_dir = skills_dir or (Path(__file__).parent.parent / "skills")
         self.model_service_registry = model_service_registry
         self.execution_engine = execution_engine
+        self.agent_manager = agent_manager  # 用于子Agent调用
         self.llm = None
         self.llm_with_tools = None  # 绑定工具后的 LLM
         self.graph = None
@@ -88,6 +92,16 @@ class AgentEngine:
 
         # 保存config引用，用于动态刷新skill_tool的enabled_skills
         self._config_ref = config
+
+        # ====================================================================
+        # 【AC130-202603142210】Agent-as-a-Tool: 子Agent支持
+        # ====================================================================
+        # 运行时调用栈追踪（用于循环检测）
+        self._call_stack: List[str] = []
+        # 子Agent并发控制（信号量）
+        self._sub_agent_semaphore: Optional[asyncio.Semaphore] = None
+        # 循环检测器（延迟初始化）
+        self._cycle_detector: Optional[CycleDetector] = None
 
     def _refresh_skill_tool_if_needed(self):
         """检查并刷新skill_tool的enabled_skills（用于配置热更新）"""
@@ -182,6 +196,12 @@ class AgentEngine:
             skill_tools = self._create_skill_tools()
             tools_to_bind.extend(skill_tools)
             print(f"[DEBUG] 绑定 {len(skill_tools)} 个 Skill 工具")
+
+        # 3. 子Agent工具（Agent-as-a-Tool）
+        sub_agent_tools = self._create_sub_agent_tools()
+        if sub_agent_tools:
+            tools_to_bind.extend(sub_agent_tools)
+            print(f"[DEBUG] 绑定 {len(sub_agent_tools)} 个子Agent工具")
 
         if not tools_to_bind:
             print(f"[DEBUG] 没有工具需要绑定")
@@ -282,6 +302,225 @@ class AgentEngine:
 
         tools.extend([load_skill, execute_skill])
         return tools
+
+    # ========================================================================
+    # 【AC130-202603142210】Agent-as-a-Tool: 子Agent工具创建
+    # ========================================================================
+
+    def _create_sub_agent_tools(self) -> List:
+        """
+        创建子Agent相关的LangChain工具
+
+        Returns:
+            LangChain Tool 列表
+        """
+        from langchain_core.tools import StructuredTool
+        from pydantic import BaseModel, Field
+
+        tools = []
+        sub_agents = self.config.sub_agents or []
+
+        if not sub_agents:
+            return tools
+
+        # 为每个子Agent创建一个工具
+        for sub_agent_name in sub_agents:
+            # 获取子Agent配置以生成描述
+            sub_config = self.agent_manager.get_config(sub_agent_name) if self.agent_manager else None
+            sub_persona = sub_config.persona[:100] if sub_config else "专业助手"
+
+            # 创建工具名称（有效标识符）
+            safe_name = sub_agent_name.lower().replace('-', '_').replace(' ', '_')
+            tool_name = f"call_agent_{safe_name}"
+
+            # 创建工具描述
+            tool_description = f"""调用子Agent '{sub_agent_name}'来处理特定任务。
+
+子Agent人设: {sub_persona}
+
+当用户请求需要'{sub_agent_name}'的专业能力时使用此工具。
+
+Args:
+    message: 发送给子Agent的消息内容
+
+Returns:
+    子Agent的响应结果
+"""
+
+            # 创建输入 schema（使用字典形式避免类定义问题）
+            args_schema = {
+                "title": f"{tool_name}_schema",
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "发送给子Agent的消息内容"
+                    }
+                },
+                "required": ["message"]
+            }
+
+            # 使用工厂函数创建独立的闭包
+            def make_sub_agent_tool(name: str, desc: str, schema: dict):
+                def _run(message: str) -> str:
+                    return f"[SUB_AGENT_CALL] {name}|{message}"
+
+                async def _arun(message: str) -> str:
+                    return f"[SUB_AGENT_CALL] {name}|{message}"
+
+                # 使用 StructuredTool 创建工具
+                return StructuredTool(
+                    name=name,
+                    description=desc,
+                    func=_run,
+                    coroutine=_arun,
+                    args_schema=schema
+                )
+
+            sub_agent_tool = make_sub_agent_tool(tool_name, tool_description, args_schema)
+            tools.append(sub_agent_tool)
+
+        return tools
+
+    async def _execute_sub_agent(
+        self,
+        sub_agent_name: str,
+        message: str,
+        call_stack: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        执行子Agent调用
+
+        Args:
+            sub_agent_name: 子Agent名称
+            message: 发送给子Agent的消息
+            call_stack: 当前调用栈（用于循环检测）
+
+        Returns:
+            包含执行结果的字典 {success, result, error}
+        """
+        if not self.agent_manager:
+            return {
+                "success": False,
+                "error": "AgentManager未初始化，无法调用子Agent"
+            }
+
+        # 初始化调用栈
+        if call_stack is None:
+            call_stack = []
+        current_stack = call_stack.copy()
+
+        # 运行时循环检测
+        if sub_agent_name in current_stack:
+            cycle_path = current_stack + [sub_agent_name]
+            return {
+                "success": False,
+                "error": f"运行时循环检测: {' -> '.join(cycle_path)}"
+            }
+
+        # 检查子Agent是否存在
+        sub_agent_instance = self.agent_manager.get_agent(sub_agent_name)
+        if not sub_agent_instance:
+            return {
+                "success": False,
+                "error": f"子Agent '{sub_agent_name}' 不存在"
+            }
+
+        # 检查子Agent引擎是否已初始化
+        if not sub_agent_instance.engine:
+            try:
+                await sub_agent_instance.initialize()
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"子Agent '{sub_agent_name}' 初始化失败: {str(e)}"
+                }
+
+        # 初始化并发控制信号量
+        if self._sub_agent_semaphore is None:
+            max_concurrent = getattr(self.config, 'sub_agent_max_concurrent', 3)
+            self._sub_agent_semaphore = asyncio.Semaphore(max_concurrent)
+
+        # 执行子Agent（带超时和并发控制）
+        timeout = getattr(self.config, 'sub_agent_timeout', 60)
+        max_retries = getattr(self.config, 'sub_agent_max_retries', 1)
+
+        for attempt in range(max_retries + 1):
+            try:
+                async with self._sub_agent_semaphore:
+                    # 使用 asyncio.wait_for 实现超时控制
+                    result = await asyncio.wait_for(
+                        self._run_sub_agent_with_stack(
+                            sub_agent_instance,
+                            message,
+                            current_stack + [self.config.name]
+                        ),
+                        timeout=timeout
+                    )
+
+                return {
+                    "success": True,
+                    "result": result
+                }
+
+            except asyncio.TimeoutError:
+                if attempt < max_retries:
+                    continue
+                return {
+                    "success": False,
+                    "error": f"子Agent '{sub_agent_name}' 调用超时（{timeout}秒）"
+                }
+            except Exception as e:
+                if attempt < max_retries:
+                    continue
+                return {
+                    "success": False,
+                    "error": f"子Agent '{sub_agent_name}' 调用失败: {str(e)}"
+                }
+
+        return {
+            "success": False,
+            "error": f"子Agent '{sub_agent_name}' 调用失败（超过最大重试次数）"
+        }
+
+    async def _run_sub_agent_with_stack(
+        self,
+        sub_agent_instance: "AgentInstance",
+        message: str,
+        call_stack: List[str]
+    ) -> str:
+        """
+        运行子Agent并设置调用栈
+
+        Args:
+            sub_agent_instance: 子Agent实例
+            message: 发送给子Agent的消息
+            call_stack: 调用栈
+
+        Returns:
+            子Agent的响应结果
+        """
+        # 设置子Agent的调用栈
+        if hasattr(sub_agent_instance.engine, '_call_stack'):
+            sub_agent_instance.engine._call_stack = call_stack
+
+        # 调用子Agent的run方法
+        result = await sub_agent_instance.engine.run(
+            message,
+            history=[]  # 子Agent调用不传递历史
+        )
+
+        return result
+
+    def get_sub_agent_names(self) -> List[str]:
+        """获取当前Agent配置的所有子Agent名称"""
+        return getattr(self.config, 'sub_agents', []) or []
+
+    def _get_cycle_detector(self, all_agent_names: List[str]) -> CycleDetector:
+        """获取或创建循环检测器"""
+        if self._cycle_detector is None:
+            self._cycle_detector = CycleDetector(all_agent_names)
+        return self._cycle_detector
 
     def _get_system_prompt(self) -> str:
         """获取系统提示词"""
@@ -409,6 +648,29 @@ class AgentEngine:
                 input_file_ids=input_file_ids,
                 timeout=timeout
             )
+
+        # ====================================================================
+        # 【AC130-202603142210】处理子Agent调用
+        # ====================================================================
+        if tool_name.startswith("call_agent_"):
+            # 提取子Agent名称（从 call_agent_xxx 中提取 xxx）
+            # 需要反转之前创建工具时的名称转换
+            sub_agent_name = None
+            for candidate in self.get_sub_agent_names():
+                expected_name = f"call_agent_{candidate.lower().replace('-', '_').replace(' ', '_')}"
+                if tool_name == expected_name:
+                    sub_agent_name = candidate
+                    break
+
+            if sub_agent_name:
+                message = tool_args.get("message", "")
+                result = await self._execute_sub_agent(sub_agent_name, message, self._call_stack)
+                if result["success"]:
+                    return result["result"]
+                else:
+                    return f"子Agent调用失败: {result['error']}"
+            else:
+                return f"错误: 找不到子Agent '{tool_name}'"
 
         if not self.mcp_manager:
             return "错误: MCP管理器未初始化"
@@ -1176,12 +1438,37 @@ BEST: 编号"""
                 tools_desc += f"\n- {execute_tool_def['name']}: {execute_tool_def['description'].split(chr(10))[0]}"
                 tool_names.append(SkillTool.EXECUTE_TOOL_NAME)
 
-            # 构建技能加载规则和示例
+        # ====================================================================
+        # 【AC130-202603142210】添加子Agent工具描述
+        # ====================================================================
+        sub_agents = self.get_sub_agent_names()
+        if sub_agents:
+            for sub_agent in sub_agents:
+                tool_name = f"call_agent_{sub_agent.lower().replace('-', '_').replace(' ', '_')}"
+                tools_desc += f"\n- {tool_name}: 调用子Agent '{sub_agent}'来处理特定任务"
+                tool_names.append(tool_name)
+
+        # 构建技能加载规则和示例
+        if self.skill_tool and self.skill_tool.enabled_skills:
             skills_list = ", ".join([f'"{name}"' for name in self.skill_tool.enabled_skills[:3]])
             skill_example = f'{{"tool": "load_skill", "arguments": {{"skill_name": "{self.skill_tool.enabled_skills[0]}"}}}}'
+        else:
+            skills_list = "无"
+            skill_example = ""
 
-            # 添加工具使用提示 - 支持多任务规划
-            system_prompt += f"""
+        # 构建子Agent示例
+        sub_agent_example = ""
+        if sub_agents:
+            first_sub_agent = sub_agents[0]
+            tool_name = f"call_agent_{first_sub_agent.lower().replace('-', '_').replace(' ', '_')}"
+            sub_agent_example = f'''
+### 示例5：调用子Agent
+用户：让 {first_sub_agent} 处理这个任务
+助手:{{"tool": "{tool_name}", "arguments": {{"message": "任务描述"}}}}
+'''
+
+        # 添加工具使用提示 - 支持多任务规划
+        system_prompt += f"""
 
 ## 🔴 强制规则：必须使用工具
 **重要：你没有任何内置计算能力！** 所有计算、获取笑话、加载技能等操作，**必须**通过调用工具完成。
@@ -1261,6 +1548,7 @@ BEST: 编号"""
 5. 收到结果后，判断是否需要调用更多工具
 6. 所有工具调用完成后，使用 Markdown 格式（# 标题、**加粗**等）分段回答
 7. 不要编造答案，始终基于工具返回的结果回答
+{sub_agent_example}
 """
 
         messages = [SystemMessage(content=system_prompt)]
@@ -1419,9 +1707,23 @@ BEST: 编号"""
                     # 检查是否是 skill 工具
                     is_skill_tool = tool_name == SkillTool.TOOL_NAME or tool_name == SkillTool.EXECUTE_TOOL_NAME
 
+                    # ====================================================================
+                    # 【AC130-202603142210】检测是否是子Agent工具
+                    # ====================================================================
+                    is_sub_agent_tool = tool_name.startswith("call_agent_")
+                    sub_agent_name = None
+                    if is_sub_agent_tool:
+                        # 从工具名中提取子Agent名称
+                        for candidate in self.get_sub_agent_names():
+                            expected_name = f"call_agent_{candidate.lower().replace('-', '_').replace(' ', '_')}"
+                            if tool_name == expected_name:
+                                sub_agent_name = candidate
+                                break
+
                     # 生成唯一标识符（用于区分同名工具的多次调用）
                     import uuid
                     call_id = str(uuid.uuid4())[:8]
+                    sub_agent_start_time = None  # 用于计算调用耗时
 
                     # 如果是 skill 工具，规范化 args 中的 skill_name
                     normalized_tool_args = tool_args
@@ -1450,6 +1752,20 @@ BEST: 编号"""
                             "skill_name": skill_name
                         }
 
+                    # ====================================================================
+                    # 【AC130-202603142210】发送子Agent调用开始事件
+                    # ====================================================================
+                    if is_sub_agent_tool and sub_agent_name:
+                        sub_agent_message = tool_args.get("message", "")
+                        import time
+                        sub_agent_start_time = time.time()
+                        yield {
+                            "type": "sub_agent_call",
+                            "agent_name": sub_agent_name,
+                            "message": sub_agent_message,
+                            "call_id": call_id
+                        }
+
                     # 执行工具
                     result = await self._execute_tool(tool_name, tool_args)
 
@@ -1463,12 +1779,49 @@ BEST: 编号"""
                             "success": not result.startswith("Error:")
                         }
 
+                    # ====================================================================
+                    # 【AC130-202603142210】发送子Agent调用结果事件
+                    # ====================================================================
+                    if is_sub_agent_tool and sub_agent_name:
+                        import time
+                        duration_ms = int((time.time() - sub_agent_start_time) * 1000) if sub_agent_start_time else 0
+
+                        # 检测是否为错误结果
+                        if result.startswith("子Agent调用失败:"):
+                            error_msg = result.replace("子Agent调用失败:", "").strip()
+                            # 确定错误类型
+                            error_type = "exception"
+                            if "超时" in error_msg:
+                                error_type = "timeout"
+                            elif "循环" in error_msg or "cycle" in error_msg.lower():
+                                error_type = "recursion"
+                            elif "不存在" in error_msg:
+                                error_type = "not_found"
+
+                            yield {
+                                "type": "sub_agent_error",
+                                "agent_name": sub_agent_name,
+                                "call_id": call_id,
+                                "error": error_msg,
+                                "error_type": error_type,
+                                "duration_ms": duration_ms
+                            }
+                        else:
+                            # 成功结果
+                            yield {
+                                "type": "sub_agent_result",
+                                "agent_name": sub_agent_name,
+                                "call_id": call_id,
+                                "result": result,
+                                "duration_ms": duration_ms
+                            }
+
                     # 输出工具结果（包含唯一ID用于匹配）
                     yield {
                         "type": "tool_result",
                         "name": tool_name,
                         "call_id": call_id,
-                        "service": service_name if service_name else "skill-system" if is_skill_tool else "",
+                        "service": service_name if service_name else "skill-system" if is_skill_tool else f"agent:{sub_agent_name}" if is_sub_agent_tool and sub_agent_name else "",
                         "result": result
                     }
 
@@ -1628,6 +1981,27 @@ BEST: 编号"""
         content_cleaned = re.sub(r'```json\s*', '', content_cleaned)
         content_cleaned = re.sub(r'```\s*', '', content_cleaned)
         content_cleaned = content_cleaned.strip()
+
+        # ====================================================================
+        # 【AC130-202603141800】解析 GLM 格式: tool_call\n{name}\n{args}
+        # ====================================================================
+        if not tool_calls and "tool_call" in content_cleaned:
+            lines = content_cleaned.split('\n')
+            for i, line in enumerate(lines):
+                if line.strip() == "tool_call" and i + 1 < len(lines):
+                    tool_name = lines[i + 1].strip()
+                    args = {}
+                    if i + 2 < len(lines):
+                        try:
+                            args = json.loads(lines[i + 2].strip())
+                        except:
+                            args = {}
+                    tool_calls.append({
+                        "name": tool_name,
+                        "args": args,
+                        "id": f"call_{tool_name}"
+                    })
+                    break  # 只处理第一个工具调用
 
         # 2. 解析新 JSON 格式 {"tool": "name", "arguments": {...}}
         # 尝试直接解析清理后的内容
