@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 .conda/
+.venv/
 
 # Build outputs
 frontend/.next/
