@@ -640,7 +640,15 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                   if (skillName) {
                     // 【T017修复】使用规范化名称进行匹配
                     const normalized = normalizeSkillName(skillName);
-                    const isFailed = toolResult?.includes('error') || toolResult?.includes('Error') || toolResult?.includes('失败');
+                    // 【AC130-202603142200 修复】精确判断失败：检查头部状态标志，避免误判文档内容
+                    const isFailed = toolResult &&
+                      (toolResult.includes('Status: failed') ||
+                       toolResult.includes('Exit Code: 1') ||
+                       toolResult.includes('Exit Code: 2') ||
+                       toolResult.includes('execution timeout') ||
+                       toolResult.includes('Execution Error') ||
+                       toolResult.startsWith('Error:') ||
+                       toolResult.includes('--- Error Output ---'));
                     streamingSkillStatesRef.current = streamingSkillStatesRef.current.map(s =>
                       s.skillName === skillName || normalizeSkillName(s.skillName) === normalized
                         ? { ...s, status: isFailed ? 'failed' : 'completed', message: isFailed ? (locale === "zh" ? '执行失败' : 'Failed') : (locale === "zh" ? '执行完成' : 'Completed') }
@@ -688,7 +696,15 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                                 if (skillName) {
                                   // 【T017修复】使用规范化名称进行匹配
                                   const normalized = normalizeSkillName(skillName);
-                                  const isFailed = toolResult?.includes('error') || toolResult?.includes('Error') || toolResult?.includes('失败');
+                                  // 【AC130-202603142200 修复】精确判断失败：检查头部状态标志，避免误判文档内容
+                                  const isFailed = toolResult &&
+                                    (toolResult.includes('Status: failed') ||
+                                     toolResult.includes('Exit Code: 1') ||
+                                     toolResult.includes('Exit Code: 2') ||
+                                     toolResult.includes('execution timeout') ||
+                                     toolResult.includes('Execution Error') ||
+                                     toolResult.startsWith('Error:') ||
+                                     toolResult.includes('--- Error Output ---'));
                                   return msg.skillStates?.map(s =>
                                     s.skillName === skillName || normalizeSkillName(s.skillName) === normalized
                                       ? { ...s, status: isFailed ? 'failed' : 'completed', message: isFailed ? (locale === "zh" ? '执行失败' : 'Failed') : (locale === "zh" ? '执行完成' : 'Completed') }

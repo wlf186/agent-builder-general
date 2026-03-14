@@ -74,6 +74,8 @@ def main():
                         help='执行的操作类型 (default: extract_text)')
     parser.add_argument('--output', help='输出文件或目录路径')
     parser.add_argument('--data', help='JSON 格式的数据（用于表单填充）')
+    parser.add_argument('--limit', type=int, default=0,
+                        help='限制输出字符数（0表示不限制，用于extract_text）')
     parser.add_argument('--verbose', '-v', action='store_true', help='显示详细输出')
 
     args = parser.parse_args()
@@ -114,8 +116,11 @@ def process_pdf(args) -> Dict[str, Any]:
     """根据 action 处理 PDF"""
     action = args.action
 
+    # 获取 limit 参数（默认 0 表示不限制）
+    limit = getattr(args, 'limit', 0)
+
     if action == 'extract_text':
-        return extract_text(args.input_file, args.verbose)
+        return extract_text(args.input_file, args.verbose, limit)
     elif action == 'extract_forms':
         return extract_forms(args.input_file, args.verbose)
     elif action == 'fill_form':
@@ -144,13 +149,14 @@ def process_pdf(args) -> Dict[str, Any]:
         }
 
 
-def extract_text(input_file: str, verbose: bool = False) -> Dict[str, Any]:
+def extract_text(input_file: str, verbose: bool = False, limit: int = 0) -> Dict[str, Any]:
     """
     提取 PDF 文本内容
 
     Args:
         input_file: PDF 文件路径
         verbose: 是否显示详细输出
+        limit: 限制输出字符数（0表示不限制）
 
     Returns:
         包含提取文本的字典
@@ -191,12 +197,20 @@ def extract_text(input_file: str, verbose: bool = False) -> Dict[str, Any]:
 
         combined_text = "\n\n".join(all_text)
 
+        # 应用字符限制
+        output_text = combined_text
+        truncated = False
+        if limit > 0 and len(combined_text) > limit:
+            output_text = combined_text[:limit]
+            truncated = True
+
         return {
             "status": "success",
             "action": "extract_text",
-            "output": combined_text,
+            "output": output_text,
             "pages": page_count,
-            "char_count": len(combined_text)
+            "char_count": len(output_text),
+            "truncated": truncated
         }
 
     except Exception as e:
