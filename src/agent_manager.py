@@ -155,13 +155,14 @@ class AgentInstance:
 
         return response
 
-    async def chat_stream(self, message: str, history: List[Dict] = None, file_context: str = ""):
+    async def chat_stream(self, message: str, history: List[Dict] = None, file_context: str = "", trace_id: str = None):
         """流式对话 - 返回包含 thinking、tool_call、tool_result、content 的事件
 
         Args:
             message: 用户消息
             history: 对话历史
             file_context: 文件上下文信息（包含用户上传文件的元数据）
+            trace_id: 追踪 ID（用于日志关联）
         """
         if not self.engine:
             await self.initialize()
@@ -178,7 +179,7 @@ class AgentInstance:
             chat_history = chat_history[-(memory_limit * 2):]
 
         full_response = ""
-        async for event in self.engine.stream(message, chat_history, file_context):
+        async for event in self.engine.stream(message, chat_history, file_context, trace_id):
             # event 是一个字典，包含 type 和其他字段
             if isinstance(event, dict):
                 if event.get("type") == "content":

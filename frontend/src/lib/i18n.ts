@@ -39,7 +39,7 @@ export const translations = {
 
     // 配置页
     agentConfig: "智能体配置",
-    personaAndPrompts: "人设与提示词",
+    personaAndPrompts: "智能体人设",
     personaPlaceholder: "描述智能体的角色、性格和能力...",
     modelConfig: "模型配置",
     llmProvider: "LLM 提供商",

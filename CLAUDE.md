@@ -32,6 +32,26 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 >
 > ---
 
+> **⚠️ Playwright UAT测试重要注意事项**
+>
+> 在使用Playwright进行智能体对话测试时，**必须确保在正确的输入区域发送消息**：
+>
+> 1. **正确的区域**：**调试对话**的"输入消息"文本框（页面右侧的聊天区域）
+> 2. **错误的区域**：**人设与提示词**的编辑框（页面左侧的配置区域）
+>
+> **UI结构说明**：
+> - 页面分为左右两栏
+> - **左侧**：智能体配置面板（人设、模型、MCP服务、技能等）
+> - **右侧**：调试对话面板（聊天消息列表 + 输入框）
+>
+> **测试脚本选择器指南**：
+> - 调试对话输入框：`page.locator('textarea').first()` 或更精确的 `page.locator('[data-chat-input]')`
+> - 发送方式：`input.press('Enter')` 或点击发送按钮
+>
+> **错误示例**：在配置面板的textarea中输入消息，这不会触发聊天请求
+>
+> ---
+
 ## Architecture
 
 ```
@@ -184,6 +204,28 @@ python tests/test_streaming_output.py
 > 2. **先停后清**：必须先停止服务，再清除缓存，最后重启
 > 3. **验证方法**：使用 Playwright 或浏览器 DevTools 检查控制台是否有 404 错误
 > 4. **生产环境**：使用 `npm run build && npm start`，避免开发模式的缓存问题
+
+---
+
+> **⚠️ 重要原则：开发完成后必须清除缓存并重启服务**
+>
+> 每次开发完毕，进行"前端测试/UAT/告知用户验证"之前，**务必先执行以下步骤**：
+>
+> ```bash
+> # 1. 停止前端服务
+> pkill -f "next-server" || kill -9 <next-server-pid>
+>
+> # 2. 清除前端构建缓存
+> rm -rf frontend/.next
+>
+> # 3. 重新启动前端服务
+> cd frontend && npm run dev
+> ```
+>
+> **原因**：Next.js 开发模式会缓存构建产物，代码修改后如果不清理缓存，可能导致：
+> - 旧代码仍在运行，测试结果不准确
+> - 静态资源 404 错误
+> - 类型定义不同步
 
 ---
 

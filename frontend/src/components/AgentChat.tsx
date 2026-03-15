@@ -37,6 +37,7 @@ import { PendingFile, FileAttachment, DEFAULT_FILE_CONFIG, formatFileSize, FileU
 import { FileUploader, UploadButton } from '@/components/FileUploader';
 import { SubAgentCallCard } from '@/components/SubAgentCallCard';
 import { uploadFile } from '@/lib/fileApi';
+import { DebugLogger, generateRequestId } from '@/lib/debugLogger';
 
 const API_BASE = '/api';
 
@@ -140,6 +141,10 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // ========== Debug Logger 集成 ==========
+  // 调试日志记录器，用于采集请求、响应、SSE chunks 等数据
+  const debugLoggerRef = useRef<DebugLogger | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);  // 文件输入引用
 
   // 使用 ref 存储流式内容，避免频繁触发重渲染
@@ -173,6 +178,18 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  // ========== Debug Logger 初始化 ==========
+  // 在组件挂载时创建日志记录器
+  useEffect(() => {
+    debugLoggerRef.current = DebugLogger.create();
+    return () => {
+      // 组件卸载时清理
+      if (debugLoggerRef.current) {
+        // 这里可以添加清理逻辑
+      }
+    };
+  }, []);
 
   // 自动滚动到底部
   const scrollToBottom = useCallback(() => {
@@ -304,34 +321,57 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   }, [agentName]);
 
   const downloadLogs = async () => {
-    const clientLog = locale === "zh"
-      ? `=== 客户端日志 ===\n${localLogs.join('\n\n')}`
-      : `=== Client Logs ===\n${localLogs.join('\n\n')}`;
+    if (!debugLoggerRef.current) {
+      // Fallback to old behavior if logger not available
+      const clientLog = locale === "zh"
+        ? `=== 客户端日志 ===\n${localLogs.join('\n\n')}`
+        : `=== Client Logs ===\n${localLogs.join('\n\n')}`;
 
-    // 尝试获取服务端日志
-    let serverLog = locale === "zh"
-      ? '=== 服务端日志 ===\n(无法获取)'
-      : '=== Server Logs ===\n(Unavailable)';
+      const allLogs = `${clientLog}\n\n=== 服务端日志 ===\n(无法获取)`;
+
+      const blob = new Blob([allLogs], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `chat-debug-log-${Date.now()}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    // 使用 DebugLogger 导出日志
     try {
-      const res = await fetch('/api/../logs/stream-debug.txt');
-      if (res.ok) {
-        serverLog = locale === "zh"
-          ? `=== 服务端日志 ===\n${await res.text()}`
-          : `=== Server Logs ===\n${await res.text()}`;
-      }
-    } catch (e) {}
+      // 尝试获取后端日志
+      await debugLoggerRef.current.fetchBackendLogs('/api');
 
-    const allLogs = `${clientLog}\n\n${serverLog}`;
+      // 导出为 JSON 格式
+      const logData = debugLoggerRef.current.export('json');
+      const blob = new Blob([logData], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `debug-log-${agentName}-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export logs:', error);
 
-    const blob = new Blob([allLogs], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chat-debug-log-${Date.now()}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+      // Fallback to client-only logs
+      const logData = debugLoggerRef.current.export('json');
+      const blob = new Blob([logData], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `debug-log-client-only-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
   // ========== 文件上传函数 (T016) ==========
@@ -511,12 +551,27 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
       content: msg.content
     }));
 
+    // ========== Debug Logger: 生成 Trace ID 并记录请求 ==========
+    const traceId = generateRequestId();
+    if (debugLoggerRef.current) {
+      debugLoggerRef.current.logRequestStart({
+        agentName,
+        message: userContent,
+        history: historyMessages,
+        file_ids: allFileIds,
+        conversation_id: activeConversationId
+      });
+    }
+
     try {
-      addLog('INFO', locale === "zh" ? '准备发起 fetch 请求' : 'Preparing fetch request', { url: requestUrl, historyCount: historyMessages.length, fileIds: allFileIds });
+      addLog('INFO', locale === "zh" ? '准备发起 fetch 请求' : 'Preparing fetch request', { url: requestUrl, historyCount: historyMessages.length, fileIds: allFileIds, traceId });
 
       const res = await fetch(requestUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Request-ID': traceId  // 添加 Trace ID header
+        },
         body: JSON.stringify({
           message: userContent,
           history: historyMessages,
@@ -560,6 +615,11 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
         // 【关键】使用 stream: true 选项，确保跨 chunk 的 UTF-8 字符能正确解码
         const chunk = decoder.decode(value, { stream: true });
         addChunkLog(chunkCount, totalBytes, chunk);
+
+        // ========== Debug Logger: 记录 SSE Chunks ==========
+        if (debugLoggerRef.current) {
+          debugLoggerRef.current.logChunk(chunk);
+        }
 
         buffer += chunk;
         const lines = buffer.split('\n');
