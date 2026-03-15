@@ -1382,7 +1382,7 @@ BEST: 编号"""
     # - frontend/src/components/AgentChat.tsx - 前端渲染
     # - frontend/src/app/stream/agents/[name]/chat/route.ts - 流式代理
     # ============================================================================
-    async def stream(self, user_input: str, history: List[Dict] = None, file_context: str = ""):
+    async def stream(self, user_input: str, history: List[Dict] = None, file_context: str = "", trace_id: str = None):
         """流式运行Agent - 支持返回 thinking、多轮工具调用和最终回答
 
         【流式输出核心方法 - 谨慎修改】
@@ -1401,6 +1401,7 @@ BEST: 编号"""
             user_input: 用户输入
             history: 对话历史
             file_context: 文件上下文信息（包含用户上传文件的元数据）
+            trace_id: 可追溯ID，用于关联日志和调试
         """
         # 刷新skill_tool的enabled_skills（用于配置热更新）
         self._refresh_skill_tool_if_needed()
@@ -1608,45 +1609,64 @@ BEST: 编号"""
             # 选择使用绑定工具的 LLM 还是原始 LLM
             llm_to_use = self.llm_with_tools if self.llm_with_tools else self.llm
 
-            async for chunk in llm_to_use.astream(messages):
-                if chunk.content:
-                    response_content += chunk.content
+            # ============================================================================
+            # 【AC130-202603150000】LLM 流式输出异常处理
+            # ============================================================================
+            try:
+                async for chunk in llm_to_use.astream(messages):
+                    if chunk.content:
+                        response_content += chunk.content
 
-                    # 检查是否可能是工具调用
-                    if not content_started:
-                        content_started = True
-                        stripped = response_content.strip()
-                        if stripped.startswith('{') or stripped.startswith('```json'):
-                            might_be_tool_call = True
-                            buffering = True
-                            yield {"type": "thinking", "content": "✓ 分析用户请求\n✓ 检测到工具调用..."}
-                        else:
-                            # 不以 { 开头，先缓冲一小段来确认
-                            buffering = True
+                        # 检查是否可能是工具调用
+                        if not content_started:
+                            content_started = True
+                            stripped = response_content.strip()
+                            if stripped.startswith('{') or stripped.startswith('```json'):
+                                might_be_tool_call = True
+                                buffering = True
+                                yield {"type": "thinking", "content": "✓ 分析用户请求\n✓ 检测到工具调用..."}
+                            else:
+                                # 不以 { 开头，先缓冲一小段来确认
+                                buffering = True
+                                buffer_content += chunk.content
+                        elif buffering and not started_streaming:
+                            # 还在缓冲模式，累积内容
                             buffer_content += chunk.content
-                    elif buffering and not started_streaming:
-                        # 还在缓冲模式，累积内容
-                        buffer_content += chunk.content
 
-                        # 检查缓冲内容是否包含工具调用 JSON
-                        if '"tool"' in buffer_content and '{' in buffer_content:
-                            might_be_tool_call = True
+                            # 检查缓冲内容是否包含工具调用 JSON
+                            if '"tool"' in buffer_content and '{' in buffer_content:
+                                might_be_tool_call = True
 
-                        # 【流式输出核心】如果缓冲区超过阈值且没有检测到工具调用，开始流式输出
-                        if len(buffer_content) > BUFFER_THRESHOLD and not might_be_tool_call:
-                            started_streaming = True
-                            # 【关键】逐字符输出缓冲内容，实现打字机效果
-                            # 前端 AgentChat.tsx 使用 flushSync 确保每次 yield 都能立即渲染
-                            for char in buffer_content:
-                                yield {"type": "content", "content": char}
-                            buffer_content = ""
-                    elif started_streaming:
-                        # 【流式输出核心】已经开始流式输出，直接输出新内容
-                        # 这里的 chunk.content 是 LLM 返回的增量内容，直接透传给前端
-                        yield {"type": "content", "content": chunk.content}
-                    elif buffering and might_be_tool_call:
-                        # 检测到工具调用，继续缓冲
-                        buffer_content += chunk.content
+                            # 【流式输出核心】如果缓冲区超过阈值且没有检测到工具调用，开始流式输出
+                            if len(buffer_content) > BUFFER_THRESHOLD and not might_be_tool_call:
+                                started_streaming = True
+                                # 【关键】逐字符输出缓冲内容，实现打字机效果
+                                # 前端 AgentChat.tsx 使用 flushSync 确保每次 yield 都能立即渲染
+                                for char in buffer_content:
+                                    yield {"type": "content", "content": char}
+                                buffer_content = ""
+                        elif started_streaming:
+                            # 【流式输出核心】已经开始流式输出，直接输出新内容
+                            # 这里的 chunk.content 是 LLM 返回的增量内容，直接透传给前端
+                            yield {"type": "content", "content": chunk.content}
+                        elif buffering and might_be_tool_call:
+                            # 检测到工具调用，继续缓冲
+                            buffer_content += chunk.content
+
+            # ============================================================================
+            # 【AC130-202603150000】LLM 流式输出异常捕获
+            # ============================================================================
+            except Exception as e:
+                # LLM 调用失败，发送错误事件到前端
+                error_msg = f"LLM 调用失败: {str(e)}"
+                print(f"[ERROR] LLM stream error: {error_msg}")
+                yield {
+                    "type": "error",
+                    "content": error_msg,
+                    "error_type": type(e).__name__
+                }
+                # 重新抛出异常，让后端 logger 记录
+                raise
 
             # 如果在缓冲模式，检查是否有工具调用
             if buffering and not started_streaming:
@@ -1697,140 +1717,169 @@ BEST: 编号"""
                     tool_name = tool_call["name"]
                     tool_args = tool_call.get("args", {})
 
-                    # 获取工具的服务名
-                    service_name = ""
-                    if self.mcp_manager:
-                        tool = self.mcp_manager.get_tool(tool_name)
-                        if tool:
-                            service_name = tool.server_name
+                    # ============================================================================
+                    # 【AC130-202603150000】工具执行异常处理
+                    # ============================================================================
+                    try:
+                        # 获取工具的服务名
+                        service_name = ""
+                        if self.mcp_manager:
+                            tool = self.mcp_manager.get_tool(tool_name)
+                            if tool:
+                                service_name = tool.server_name
 
-                    # 检查是否是 skill 工具
-                    is_skill_tool = tool_name == SkillTool.TOOL_NAME or tool_name == SkillTool.EXECUTE_TOOL_NAME
+                        # 检查是否是 skill 工具
+                        is_skill_tool = tool_name == SkillTool.TOOL_NAME or tool_name == SkillTool.EXECUTE_TOOL_NAME
 
-                    # ====================================================================
-                    # 【AC130-202603142210】检测是否是子Agent工具
-                    # ====================================================================
-                    is_sub_agent_tool = tool_name.startswith("call_agent_")
-                    sub_agent_name = None
-                    if is_sub_agent_tool:
-                        # 从工具名中提取子Agent名称
-                        for candidate in self.get_sub_agent_names():
-                            expected_name = f"call_agent_{candidate.lower().replace('-', '_').replace(' ', '_')}"
-                            if tool_name == expected_name:
-                                sub_agent_name = candidate
-                                break
+                        # ====================================================================
+                        # 【AC130-202603142210】检测是否是子Agent工具
+                        # ====================================================================
+                        is_sub_agent_tool = tool_name.startswith("call_agent_")
+                        sub_agent_name = None
+                        if is_sub_agent_tool:
+                            # 从工具名中提取子Agent名称
+                            for candidate in self.get_sub_agent_names():
+                                expected_name = f"call_agent_{candidate.lower().replace('-', '_').replace(' ', '_')}"
+                                if tool_name == expected_name:
+                                    sub_agent_name = candidate
+                                    break
 
-                    # 生成唯一标识符（用于区分同名工具的多次调用）
-                    import uuid
-                    call_id = str(uuid.uuid4())[:8]
-                    sub_agent_start_time = None  # 用于计算调用耗时
+                        # 生成唯一标识符（用于区分同名工具的多次调用）
+                        import uuid
+                        call_id = str(uuid.uuid4())[:8]
+                        sub_agent_start_time = None  # 用于计算调用耗时
 
-                    # 如果是 skill 工具，规范化 args 中的 skill_name
-                    normalized_tool_args = tool_args
-                    if is_skill_tool:
-                        raw_skill_name = tool_args.get("skill_name") or tool_args.get("skill", "")
-                        if raw_skill_name and self.skill_tool:
-                            matched_name = self.skill_tool._match_skill_name(raw_skill_name)
-                            if matched_name:
-                                normalized_tool_args = {**tool_args, "skill_name": matched_name}
+                        # 如果是 skill 工具，规范化 args 中的 skill_name
+                        normalized_tool_args = tool_args
+                        if is_skill_tool:
+                            raw_skill_name = tool_args.get("skill_name") or tool_args.get("skill", "")
+                            if raw_skill_name and self.skill_tool:
+                                matched_name = self.skill_tool._match_skill_name(raw_skill_name)
+                                if matched_name:
+                                    normalized_tool_args = {**tool_args, "skill_name": matched_name}
 
-                    # 输出工具调用信息（包含服务名和唯一ID）
-                    yield {
-                        "type": "tool_call",
-                        "name": tool_name,
-                        "call_id": call_id,
-                        "service": service_name if service_name else "skill-system" if is_skill_tool else "",
-                        "args": normalized_tool_args
-                    }
-
-                    # 如果是 skill 工具，发送 skill_loading 事件
-                    if is_skill_tool:
-                        # 使用已规范化的skill名称
-                        skill_name = normalized_tool_args.get("skill_name") or normalized_tool_args.get("skill", "")
+                        # 输出工具调用信息（包含服务名和唯一ID）
                         yield {
-                            "type": "skill_loading",
-                            "skill_name": skill_name
+                            "type": "tool_call",
+                            "name": tool_name,
+                            "call_id": call_id,
+                            "service": service_name if service_name else "skill-system" if is_skill_tool else "",
+                            "args": normalized_tool_args
                         }
 
-                    # ====================================================================
-                    # 【AC130-202603142210】发送子Agent调用开始事件
-                    # ====================================================================
-                    if is_sub_agent_tool and sub_agent_name:
-                        sub_agent_message = tool_args.get("message", "")
-                        import time
-                        sub_agent_start_time = time.time()
-                        yield {
-                            "type": "sub_agent_call",
-                            "agent_name": sub_agent_name,
-                            "message": sub_agent_message,
-                            "call_id": call_id
-                        }
-
-                    # 执行工具
-                    result = await self._execute_tool(tool_name, tool_args)
-
-                    # 如果是 skill 工具，发送 skill_loaded 事件
-                    if is_skill_tool:
-                        # 使用已规范化的skill名称
-                        skill_name = normalized_tool_args.get("skill_name") or normalized_tool_args.get("skill", "")
-                        yield {
-                            "type": "skill_loaded",
-                            "skill_name": skill_name,
-                            "success": not result.startswith("Error:")
-                        }
-
-                    # ====================================================================
-                    # 【AC130-202603142210】发送子Agent调用结果事件
-                    # ====================================================================
-                    if is_sub_agent_tool and sub_agent_name:
-                        import time
-                        duration_ms = int((time.time() - sub_agent_start_time) * 1000) if sub_agent_start_time else 0
-
-                        # 检测是否为错误结果
-                        if result.startswith("子Agent调用失败:"):
-                            error_msg = result.replace("子Agent调用失败:", "").strip()
-                            # 确定错误类型
-                            error_type = "exception"
-                            if "超时" in error_msg:
-                                error_type = "timeout"
-                            elif "循环" in error_msg or "cycle" in error_msg.lower():
-                                error_type = "recursion"
-                            elif "不存在" in error_msg:
-                                error_type = "not_found"
-
+                        # 如果是 skill 工具，发送 skill_loading 事件
+                        if is_skill_tool:
+                            # 使用已规范化的skill名称
+                            skill_name = normalized_tool_args.get("skill_name") or normalized_tool_args.get("skill", "")
                             yield {
-                                "type": "sub_agent_error",
-                                "agent_name": sub_agent_name,
-                                "call_id": call_id,
-                                "error": error_msg,
-                                "error_type": error_type,
-                                "duration_ms": duration_ms
-                            }
-                        else:
-                            # 成功结果
-                            yield {
-                                "type": "sub_agent_result",
-                                "agent_name": sub_agent_name,
-                                "call_id": call_id,
-                                "result": result,
-                                "duration_ms": duration_ms
+                                "type": "skill_loading",
+                                "skill_name": skill_name
                             }
 
-                    # 输出工具结果（包含唯一ID用于匹配）
-                    yield {
-                        "type": "tool_result",
-                        "name": tool_name,
-                        "call_id": call_id,
-                        "service": service_name if service_name else "skill-system" if is_skill_tool else f"agent:{sub_agent_name}" if is_sub_agent_tool and sub_agent_name else "",
-                        "result": result
-                    }
+                        # ====================================================================
+                        # 【AC130-202603142210】发送子Agent调用开始事件
+                        # ====================================================================
+                        if is_sub_agent_tool and sub_agent_name:
+                            sub_agent_message = tool_args.get("message", "")
+                            import time
+                            sub_agent_start_time = time.time()
+                            yield {
+                                "type": "sub_agent_call",
+                                "agent_name": sub_agent_name,
+                                "message": sub_agent_message,
+                                "call_id": call_id
+                            }
 
-                    tool_calls_info.append({
-                        "name": tool_name,
-                        "call_id": call_id,
-                        "args": tool_args,
-                        "result": result
-                    })
+                        # 执行工具
+                        result = await self._execute_tool(tool_name, tool_args)
+
+                        # 如果是 skill 工具，发送 skill_loaded 事件
+                        if is_skill_tool:
+                            # 使用已规范化的skill名称
+                            skill_name = normalized_tool_args.get("skill_name") or normalized_tool_args.get("skill", "")
+                            yield {
+                                "type": "skill_loaded",
+                                "skill_name": skill_name,
+                                "success": not result.startswith("Error:")
+                            }
+
+                        # ====================================================================
+                        # 【AC130-202603142210】发送子Agent调用结果事件
+                        # ====================================================================
+                        if is_sub_agent_tool and sub_agent_name:
+                            import time
+                            duration_ms = int((time.time() - sub_agent_start_time) * 1000) if sub_agent_start_time else 0
+
+                            # 检测是否为错误结果
+                            if result.startswith("子Agent调用失败:"):
+                                error_msg = result.replace("子Agent调用失败:", "").strip()
+                                # 确定错误类型
+                                error_type = "exception"
+                                if "超时" in error_msg:
+                                    error_type = "timeout"
+                                elif "循环" in error_msg or "cycle" in error_msg.lower():
+                                    error_type = "recursion"
+                                elif "不存在" in error_msg:
+                                    error_type = "not_found"
+
+                                yield {
+                                    "type": "sub_agent_error",
+                                    "agent_name": sub_agent_name,
+                                    "call_id": call_id,
+                                    "error": error_msg,
+                                    "error_type": error_type,
+                                    "duration_ms": duration_ms
+                                }
+                            else:
+                                # 成功结果
+                                yield {
+                                    "type": "sub_agent_result",
+                                    "agent_name": sub_agent_name,
+                                    "call_id": call_id,
+                                    "result": result,
+                                    "duration_ms": duration_ms
+                                }
+
+                        # 输出工具结果（包含唯一ID用于匹配）
+                        yield {
+                            "type": "tool_result",
+                            "name": tool_name,
+                            "call_id": call_id,
+                            "service": service_name if service_name else "skill-system" if is_skill_tool else f"agent:{sub_agent_name}" if is_sub_agent_tool and sub_agent_name else "",
+                            "result": result
+                        }
+
+                        tool_calls_info.append({
+                            "name": tool_name,
+                            "call_id": call_id,
+                            "args": tool_args,
+                            "result": result
+                        })
+
+                    # ============================================================================
+                    # 【AC130-202603150000】工具执行异常捕获
+                    # ============================================================================
+                    except Exception as e:
+                        # 工具执行失败，发送错误事件
+                        error_msg = f"工具执行失败 ({tool_name}): {str(e)}"
+                        print(f"[ERROR] Tool execution error: {error_msg}")
+
+                        # 发送工具结果（错误信息）
+                        yield {
+                            "type": "tool_result",
+                            "name": tool_name,
+                            "call_id": call_id,
+                            "service": service_name if service_name else "skill-system" if is_skill_tool else f"agent:{sub_agent_name}" if is_sub_agent_tool and sub_agent_name else "",
+                            "result": f"错误: {str(e)}",
+                            "error": True
+                        }
+
+                        tool_calls_info.append({
+                            "name": tool_name,
+                            "call_id": call_id,
+                            "args": tool_args,
+                            "result": f"错误: {str(e)}"
+                        })
 
                 all_tool_calls_info.extend(tool_calls_info)
 

@@ -766,107 +766,209 @@ async def chat_with_agent(name: str, req: ChatRequest):
 async def chat_stream(name: str, req: ChatRequest):
     """流式对话 - 支持返回 thinking、工具调用和最终回答
 
+    【AC130-202603150000】增强异常处理 - 添加结构化日志和错误事件
+
     【流式输出核心端点 - 谨慎修改】
     使用 SSE (Server-Sent Events) 协议实现流式传输。
     """
     if name not in manager.list_agents():
         raise HTTPException(status_code=404, detail="Agent不存在")
 
+    # ============================================================================
+    # 【AC130-202603150000】初始化日志记录器
+    # 从请求头或自动生成 request_id
+    # ============================================================================
+    from src.stream_logger import get_logger, cleanup_old_logs
+    import uuid
+    import traceback
+
+    # 这里需要从实际请求头获取，但由于 FastAPI 的限制，我们在 generate 内部处理
+    # 暂时生成一个临时 ID，后续可以从请求上下文获取
+    request_id = f"stream-{uuid.uuid4().hex[:8]}"
+    logger = get_logger(request_id)
+
     async def generate():
         import time
         start_time = time.time()
         first_token_time = None
         token_count = 0
+        request_completed = False
 
-        instance = await manager.get_instance(name)
-        instance_ready_time = time.time()
-        print(f"[METRICS] get_instance 耗时: {(instance_ready_time - start_time) * 1000:.0f}ms")
-
-        if not instance:
-            yield f"data: {json.dumps({'error': '无法加载Agent'}, ensure_ascii=False)}\n\n"
-            return
-
-        # 构建文件上下文（增强版，包含 file_id 表格和调用示例）
-        file_context = ""
-        file_ids_list = []
-        if req.file_ids:
-            try:
-                files = await file_storage_manager.list_files(name)
-                matched_files = [f for f in files if f.file_id in req.file_ids]
-                if matched_files:
-                    file_context = "\n\n=== 用户上传的文件 ===\n\n"
-                    file_context += "| file_id | 文件名 | 类型 | 大小 |\n"
-                    file_context += "|---------|--------|------|------|\n"
-                    for f in matched_files:
-                        file_ids_list.append(f.file_id)
-                        size_kb = f.file_size / 1024
-                        file_context += f"| {f.file_id} | {f.filename} | {f.mime_type} | {size_kb:.1f}KB |\n"
-
-                    file_context += "\n**重要提示**:\n"
-                    file_context += "1. 调用 execute_skill 工具时，请使用上述 file_id 作为 input_file_ids 参数\n"
-                    file_context += "2. 文件会被自动放置在脚本的 ./input/ 目录下\n"
-                    file_context += "3. 根据文件类型选择对应的 Skill：PDF 文件用 AB-pdf，Word 文档用 AB-docx\n"
-
-                    # 生成调用示例
-                    if matched_files:
-                        first_file = matched_files[0]
-                        file_id_str = '", "'.join(file_ids_list)
-                        if first_file.mime_type == "application/pdf":
-                            file_context += "\n**调用示例**:\n"
-                            file_context += '```json\n'
-                            file_context += f'{{"tool": "execute_skill", "arguments": {{"skill_name": "AB-pdf", "input_file_ids": ["{file_id_str}"], "arguments": ["./input/{first_file.filename}", "--action", "extract_text"]}}}}\n'
-                            file_context += '```\n'
-                        elif "word" in first_file.mime_type or first_file.filename.endswith('.docx'):
-                            file_context += "\n**调用示例**:\n"
-                            file_context += '```json\n'
-                            file_context += f'{{"tool": "execute_skill", "arguments": {{"skill_name": "AB-docx", "input_file_ids": ["{file_id_str}"], "arguments": ["./input/{first_file.filename}", "--action", "extract_text"]}}}}\n'
-                            file_context += '```\n'
-            except Exception as e:
-                print(f"[WARN] 获取文件信息失败: {e}")
+        # ============================================================================
+        # 【AC130-202603150000】记录请求开始
+        # ============================================================================
+        logger.log_event("request_start", {
+            "agent_name": name,
+            "message": req.message,
+            "message_length": len(req.message),
+            "history_count": len(req.history) if req.history else 0,
+            "file_ids": req.file_ids if req.file_ids else []
+        })
 
         try:
-            async for event in instance.chat_stream(req.message, req.history, file_context):
-                # 记录第一个 token 时间
-                if first_token_time is None and event.get('type') in ['content', 'thinking']:
-                    first_token_time = time.time()
-                    print(f"[METRICS] 首 Token 时延: {(first_token_time - start_time) * 1000:.0f}ms")
+            instance = await manager.get_instance(name)
+            instance_ready_time = time.time()
+            logger.log_event("agent_loaded", {
+                "agent_name": name,
+                "load_time_ms": round((instance_ready_time - start_time) * 1000, 2)
+            })
+            print(f"[METRICS] get_instance 耗时: {(instance_ready_time - start_time) * 1000:.0f}ms")
 
-                # 统计 token 数量（基于内容长度估算）
-                if event.get('type') == 'content' and event.get('content'):
-                    # 中文约 1.5 字符/token，英文约 4 字符/token，取中值估算
-                    content = event.get('content', '')
-                    # 检测是否主要是中文
-                    chinese_chars = sum(1 for c in content if '\u4e00' <= c <= '\u9fff')
-                    if chinese_chars > len(content) * 0.3:
-                        token_count += int(len(content) / 1.5)
-                    else:
-                        token_count += len(content) // 4
+            if not instance:
+                error_msg = "无法加载Agent"
+                logger.log_error("AgentLoadError", error_msg)
+                yield _error_event(error_msg)
+                return
 
-                if event.get('type') == 'thinking' and event.get('content'):
-                    content = event.get('content', '')
-                    chinese_chars = sum(1 for c in content if '\u4e00' <= c <= '\u9fff')
-                    if chinese_chars > len(content) * 0.3:
-                        token_count += int(len(content) / 1.5)
-                    else:
-                        token_count += len(content) // 4
+            # 构建文件上下文（增强版，包含 file_id 表格和调用示例）
+            file_context = ""
+            file_ids_list = []
+            if req.file_ids:
+                try:
+                    files = await file_storage_manager.list_files(name)
+                    matched_files = [f for f in files if f.file_id in req.file_ids]
+                    if matched_files:
+                        file_context = "\n\n=== 用户上传的文件 ===\n\n"
+                        file_context += "| file_id | 文件名 | 类型 | 大小 |\n"
+                        file_context += "|---------|--------|------|------|\n"
+                        for f in matched_files:
+                            file_ids_list.append(f.file_id)
+                            size_kb = f.file_size / 1024
+                            file_context += f"| {f.file_id} | {f.filename} | {f.mime_type} | {size_kb:.1f}KB |\n"
 
-                # event 是一个字典，包含 type 和其他字段
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        file_context += "\n**重要提示**:\n"
+                        file_context += "1. 调用 execute_skill 工具时，请使用上述 file_id 作为 input_file_ids 参数\n"
+                        file_context += "2. 文件会被自动放置在脚本的 ./input/ 目录下\n"
+                        file_context += "3. 根据文件类型选择对应的 Skill：PDF 文件用 AB-pdf，Word 文档用 AB-docx\n"
 
-            # 发送性能指标
-            end_time = time.time()
-            total_duration = end_time - start_time
-            first_token_latency = (first_token_time - start_time) if first_token_time else total_duration
+                        # 生成调用示例
+                        if matched_files:
+                            first_file = matched_files[0]
+                            file_id_str = '", "'.join(file_ids_list)
+                            if first_file.mime_type == "application/pdf":
+                                file_context += "\n**调用示例**:\n"
+                                file_context += '```json\n'
+                                file_context += f'{{"tool": "execute_skill", "arguments": {{"skill_name": "AB-pdf", "input_file_ids": ["{file_id_str}"], "arguments": ["./input/{first_file.filename}", "--action", "extract_text"]}}}}\n'
+                                file_context += '```\n'
+                            elif "word" in first_file.mime_type or first_file.filename.endswith('.docx'):
+                                file_context += "\n**调用示例**:\n"
+                                file_context += '```json\n'
+                                file_context += f'{{"tool": "execute_skill", "arguments": {{"skill_name": "AB-docx", "input_file_ids": ["{file_id_str}"], "arguments": ["./input/{first_file.filename}", "--action", "extract_text"]}}}}\n'
+                                file_context += '```\n'
 
-            metrics = {
-                'type': 'metrics',
-                'first_token_latency': round(first_token_latency * 1000, 0),  # 毫秒
-                'total_tokens': token_count,
-                'total_duration': round(total_duration * 1000, 0)  # 毫秒
-            }
-            yield f"data: {json.dumps(metrics, ensure_ascii=False)}\n\n"
+                        logger.log_event("files_loaded", {
+                            "file_count": len(matched_files),
+                            "file_ids": file_ids_list
+                        })
+                except Exception as e:
+                    logger.log_error("FileLoadError", str(e))
+                    print(f"[WARN] 获取文件信息失败: {e}")
+
+            logger.log_event("llm_call_start", {
+                "message_length": len(req.message)
+            })
+
+            # ============================================================================
+            # 【AC130-202603150000】增强异常处理 - 捕获 LLM 调用异常
+            # ============================================================================
+            try:
+                async for event in instance.chat_stream(req.message, req.history, file_context):
+                    # 记录 SSE 事件类型（用于调试）
+                    event_type = event.get('type', 'unknown')
+                    logger.log_sse_event(event_type)
+
+                    # 记录第一个 token 时间
+                    if first_token_time is None and event_type in ['content', 'thinking']:
+                        first_token_time = time.time()
+                        first_token_latency_ms = (first_token_time - start_time) * 1000
+                        logger.log_event("first_token", {
+                            "latency_ms": round(first_token_latency_ms, 2)
+                        })
+                        print(f"[METRICS] 首 Token 时延: {first_token_latency_ms:.0f}ms")
+
+                    # 统计 token 数量（基于内容长度估算）
+                    if event_type == 'content' and event.get('content'):
+                        # 中文约 1.5 字符/token，英文约 4 字符/token，取中值估算
+                        content = event.get('content', '')
+                        # 检测是否主要是中文
+                        chinese_chars = sum(1 for c in content if '\u4e00' <= c <= '\u9fff')
+                        if chinese_chars > len(content) * 0.3:
+                            token_count += int(len(content) / 1.5)
+                        else:
+                            token_count += len(content) // 4
+
+                    if event_type == 'thinking' and event.get('content'):
+                        content = event.get('content', '')
+                        chinese_chars = sum(1 for c in content if '\u4e00' <= c <= '\u9fff')
+                        if chinese_chars > len(content) * 0.3:
+                            token_count += int(len(content) / 1.5)
+                        else:
+                            token_count += len(content) // 4
+
+                    # 检测是否为错误事件（由 AgentEngine 生成）
+                    if event_type == 'error':
+                        logger.log_error("LLMStreamError", event.get('content', 'Unknown error'))
+
+                    # event 是一个字典，包含 type 和其他字段
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+                request_completed = True
+
+            except asyncio.TimeoutError as e:
+                # ============================================================================
+                # 【AC130-202603150000】超时异常处理
+                # ============================================================================
+                logger.log_error("TimeoutError", f"请求超时: {str(e)}")
+                yield _error_event("请求超时，请稍后重试")
+                return
+
+            except Exception as e:
+                # ============================================================================
+                # 【AC130-202603150000】LLM 流式输出异常处理
+                # ============================================================================
+                error_type = type(e).__name__
+                error_msg = str(e)
+                logger.log_error(error_type, error_msg, traceback.format_exc())
+
+                # 发送结构化错误事件
+                yield _error_event(f"处理请求时发生错误: {error_msg}")
+                return
+
+            finally:
+                # ============================================================================
+                # 【AC130-202603150000】确保发送性能指标
+                # ============================================================================
+                end_time = time.time()
+                total_duration = end_time - start_time
+                first_token_latency = (first_token_time - start_time) if first_token_time else total_duration
+
+                metrics = {
+                    'type': 'metrics',
+                    'first_token_latency': round(first_token_latency * 1000, 0),  # 毫秒
+                    'total_tokens': token_count,
+                    'total_duration': round(total_duration * 1000, 0)  # 毫秒
+                }
+                logger.log_event("metrics", metrics)
+                yield f"data: {json.dumps(metrics, ensure_ascii=False)}\n\n"
+
+                # 记录请求结束
+                logger.log_event("request_end", {
+                    "status": "completed" if request_completed else "interrupted",
+                    "duration_ms": round(total_duration * 1000, 2),
+                    "token_count": token_count
+                })
+
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+            # ============================================================================
+            # 【AC130-202603150000】端点级异常处理
+            # ============================================================================
+            logger.log_error("EndpointError", str(e), traceback.format_exc())
+            yield _error_event(f"端点处理错误: {str(e)}")
+        finally:
+            # ============================================================================
+            # 【AC130-202603150000】清理旧日志
+            # ============================================================================
+            cleanup_old_logs()
 
     # 添加防止缓冲的headers
     return StreamingResponse(
@@ -876,8 +978,23 @@ async def chat_stream(name: str, req: ChatRequest):
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # 禁用nginx缓冲
+            "X-Request-ID": request_id,  # 【AC130-202603150000】添加请求ID到响应头
         }
     )
+
+
+def _error_event(message: str) -> str:
+    """生成错误 SSE 事件
+
+    【AC130-202603150000】辅助函数 - 生成标准错误事件
+
+    Args:
+        message: 错误消息
+
+    Returns:
+        SSE 格式的错误事件字符串
+    """
+    return f'data: {json.dumps({"type": "error", "content": message}, ensure_ascii=False)}\n\n'
 
 
 # === MCP 服务 API ===
@@ -1514,6 +1631,62 @@ async def save_client_logs(log_data: dict):
         return {"success": True, "filename": filename}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ============================================================================
+# 【AC130-202603150000】调试日志 API - 新增
+# ============================================================================
+
+@app.get("/api/debug/logs/{request_id}")
+async def get_debug_logs(request_id: str):
+    """获取指定请求的调试日志
+
+    与前端 DebugLogger 配合，提供后端流式请求的结构化日志
+
+    Args:
+        request_id: 请求唯一标识符
+
+    Returns:
+        包含 meta 和 server 字段的结构化日志响应
+    """
+    from src.stream_logger import get_logger, cleanup_old_logs
+
+    logger = get_logger(request_id)
+    logs = logger.get_logs()
+
+    # 定期清理旧日志
+    cleanup_old_logs()
+
+    return {
+        "meta": {
+            "version": "1.0",
+            "exportedAt": datetime.now().isoformat(),
+            "requestId": request_id
+        },
+        "server": {
+            "logs": logs["events"],
+            "start_time": logs["start_time"],
+            "end_time": logs["end_time"],
+            "event_count": logs["event_count"]
+        }
+    }
+
+
+@app.get("/api/debug/logs")
+async def list_debug_logs():
+    """列出所有活跃的调试日志请求ID
+
+    Returns:
+        包含所有活跃请求 ID 的列表
+    """
+    from src.stream_logger import StreamLogger
+
+    request_ids = StreamLogger.get_all_request_ids()
+
+    return {
+        "request_ids": request_ids,
+        "count": len(request_ids)
+    }
 
 
 # ============================================================================

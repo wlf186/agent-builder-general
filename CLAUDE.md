@@ -45,12 +45,137 @@ Agent Builder is a general-purpose AI agent construction platform that allows us
 > - **右侧**：调试对话面板（聊天消息列表 + 输入框）
 >
 > **测试脚本选择器指南**：
-> - 调试对话输入框：`page.locator('textarea').first()` 或更精确的 `page.locator('[data-chat-input]')`
+> - ❌ **错误**：`page.locator('textarea').first()` — 这会选中左侧人设编辑框！
+> - ✅ **正确**：`page.locator('input[type="text"][placeholder]').first()` — 选中右侧聊天输入框
 > - 发送方式：`input.press('Enter')` 或点击发送按钮
 >
 > **错误示例**：在配置面板的textarea中输入消息，这不会触发聊天请求
 >
 > ---
+
+---
+
+## 智能体聊天测试指南
+
+> **⚠️ 每次 UAT 和演示之前必须仔细阅读本节**
+>
+> **经验来源**: AC130-202603150000 迭代（AgentEngine.stream 参数修复）
+
+### 1. 测试前检查清单
+
+| 检查项 | 命令/方法 | 预期结果 |
+|--------|-----------|----------|
+| 后端服务运行 | `curl http://localhost:20881/api/agents` | 返回 agent 列表 JSON |
+| 前端服务运行 | 浏览器访问 `http://localhost:20880` | 页面正常加载 |
+| **后端代码已更新** | 重启后端服务 | `kill $(cat backend.pid) && python backend.py` |
+| API 响应正常 | `curl -X POST http://localhost:20881/api/agents/test3/chat/stream -H "Content-Type: application/json" -d '{"message":"你好","history":[]}'` | 返回流式 content 事件 |
+
+### 2. 正确的测试位置
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         页面布局示意                                 │
+├────────────────────────────┬────────────────────────────────────────┤
+│     左侧：配置面板          │       右侧：调试对话面板               │
+│                            │                                        │
+│  ┌──────────────────────┐  │  ┌──────────────────────────────────┐  │
+│  │ 人设与提示词         │  │  │                                  │  │
+│  │ ┌──────────────────┐ │  │  │    聊天消息列表                  │  │
+│  │ │ <textarea>       │ │  │  │    - 用户消息气泡                │  │
+│  │ │ 这里输入的是      │ │  │  │    - AI 回复气泡                │  │
+│  │ │ 智能体人设配置    │ │  │  │                                  │  │
+│  │ │ 不是聊天消息！    │ │  │  │                                  │  │
+│  │ └──────────────────┘ │  │  ├──────────────────────────────────┤  │
+│  │ ❌ 错误的测试位置    │  │  │ ┌──────────────────────────────┐ │  │
+│  └──────────────────────┘  │  │ │ <input type="text">          │ │  │
+│                            │  │ │ 在这里输入消息...            │ │  │
+│  ┌──────────────────────┐  │  │ └──────────────────────────────┘ │  │
+│  │ 模型设置             │  │  │ ✅ 正确的测试位置                │  │
+│  │ MCP服务              │  │  └──────────────────────────────────┘  │
+│  │ 技能配置             │  │                                        │
+│  └──────────────────────┘  │                                        │
+└────────────────────────────┴────────────────────────────────────────┘
+```
+
+### 3. 正确的 Playwright 选择器
+
+```typescript
+// ❌ 错误：选中左侧人设编辑框（textarea）
+const chatInput = page.locator('textarea').first();
+
+// ✅ 正确：选中右侧聊天输入框（input type="text"）
+const chatInput = page.locator('input[type="text"][placeholder]').first();
+
+// 或者通过 placeholder 内容定位
+const chatInput = page.locator('input[placeholder*="输入消息"], input[placeholder*="message"]').first();
+```
+
+### 4. 正常回复的标准
+
+| 用户输入 | 正常回复示例 | 异常回复（需排查） |
+|----------|--------------|-------------------|
+| "你好" | "你好！很高兴见到你！😊" / "你好！有什么可以帮助你的吗？" | 空字符串、错误提示、乱码 |
+| "今天天气怎么样" | "抱歉，我无法获取实时天气信息..." | `{"type": "error", ...}` |
+| "1+1等于几" | "1+1等于2" | 无响应、超时 |
+
+**正常回复的特征**：
+1. ✅ 内容与用户输入**相关**
+2. ✅ 内容**完整**（不是截断的片段）
+3. ✅ 内容**有意义**（不是乱码或错误信息）
+4. ✅ 流式输出**流畅**（打字机效果，逐字符显示）
+
+**异常回复的特征**：
+1. ❌ 空字符串或完全无内容
+2. ❌ 错误信息如 `"处理请求时发生错误"`
+3. ❌ 内容与输入完全不相关
+4. ❌ 截断或乱码
+
+### 5. 完整测试流程
+
+```typescript
+// 标准测试脚本模板
+test('智能体聊天测试', async ({ page }) => {
+  // 1. 访问主页
+  await page.goto('http://localhost:20880');
+  await page.waitForLoadState('networkidle');
+
+  // 2. 选择智能体
+  await page.locator('h3:has-text("test3")').first().click();
+  await page.waitForTimeout(2000);
+
+  // 3. 定位正确的输入框（关键！）
+  const chatInput = page.locator('input[type="text"][placeholder]').first();
+  await expect(chatInput).toBeVisible();
+
+  // 4. 输入消息
+  await chatInput.fill('你好');
+  await page.waitForTimeout(500);
+
+  // 5. 发送消息
+  await chatInput.press('Enter');
+
+  // 6. 等待并验证响应
+  await page.waitForTimeout(5000);
+
+  // 7. 验证响应内容（不是空字符串）
+  const pageContent = await page.textContent('body');
+  const hasValidResponse = pageContent?.includes('你好') ||
+                          pageContent?.includes('高兴') ||
+                          pageContent?.includes('帮助');
+  expect(hasValidResponse).toBeTruthy();
+});
+```
+
+### 6. 常见问题排查
+
+| 问题现象 | 可能原因 | 排查方法 |
+|----------|----------|----------|
+| API 返回参数错误 | 后端未重启加载新代码 | 重启后端服务 |
+| 空响应 | LLM 调用失败 | 检查模型服务配置 |
+| 选择器找不到元素 | 使用了错误的选择器 | 使用 `input[type="text"]` |
+| 消息发送后无响应 | 输入到了人设编辑框 | 检查截图确认输入位置 |
+
+---
 
 ## Architecture
 
