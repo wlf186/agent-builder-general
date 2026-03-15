@@ -1759,11 +1759,18 @@ BEST: 编号"""
                                     normalized_tool_args = {**tool_args, "skill_name": matched_name}
 
                         # 输出工具调用信息（包含服务名和唯一ID）
+                        # 确定服务名称：优先使用 service_name，skill 工具回退到 "skill-system"，子 Agent 工具使用 agent: 前缀
+                        service_display = service_name
+                        if not service_display:
+                            if is_skill_tool:
+                                service_display = "skill-system"
+                            elif is_sub_agent_tool and sub_agent_name:
+                                service_display = f"agent:{sub_agent_name}"
                         yield {
                             "type": "tool_call",
                             "name": tool_name,
                             "call_id": call_id,
-                            "service": service_name if service_name else "skill-system" if is_skill_tool else "",
+                            "service": service_display,
                             "args": normalized_tool_args
                         }
 
@@ -1841,11 +1848,18 @@ BEST: 编号"""
                                 }
 
                         # 输出工具结果（包含唯一ID用于匹配）
+                        # 确定服务名称：优先使用 service_name，skill 工具回退到 "skill-system"，子 Agent 工具使用 agent: 前缀
+                        service_display = service_name
+                        if not service_display:
+                            if is_skill_tool:
+                                service_display = "skill-system"
+                            elif is_sub_agent_tool and sub_agent_name:
+                                service_display = f"agent:{sub_agent_name}"
                         yield {
                             "type": "tool_result",
                             "name": tool_name,
                             "call_id": call_id,
-                            "service": service_name if service_name else "skill-system" if is_skill_tool else f"agent:{sub_agent_name}" if is_sub_agent_tool and sub_agent_name else "",
+                            "service": service_display,
                             "result": result
                         }
 
@@ -1865,11 +1879,18 @@ BEST: 编号"""
                         print(f"[ERROR] Tool execution error: {error_msg}")
 
                         # 发送工具结果（错误信息）
+                        # 确定服务名称：优先使用 service_name，skill 工具回退到 "skill-system"，子 Agent 工具使用 agent: 前缀
+                        service_display = service_name
+                        if not service_display:
+                            if is_skill_tool:
+                                service_display = "skill-system"
+                            elif is_sub_agent_tool and sub_agent_name:
+                                service_display = f"agent:{sub_agent_name}"
                         yield {
                             "type": "tool_result",
                             "name": tool_name,
                             "call_id": call_id,
-                            "service": service_name if service_name else "skill-system" if is_skill_tool else f"agent:{sub_agent_name}" if is_sub_agent_tool and sub_agent_name else "",
+                            "service": service_display,
                             "result": f"错误: {str(e)}",
                             "error": True
                         }
