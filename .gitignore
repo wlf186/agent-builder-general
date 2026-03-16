@@ -86,3 +86,17 @@ test/
 
 # Conda environments
 environments/
+
+# PID files
+*.pid
+
+# Test results
+test-results/
+frontend/test-results/
+
+# Team iteration artifacts (screenshots)
+frontend/teams/
+
+# Demo resources and artifacts
+resources/
+routine-uat-demo/
