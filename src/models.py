@@ -49,6 +49,29 @@ class PlanningMode(str, Enum):
     TOT = "tot"                        # 树状思考，探索多条路径
 
 
+# ============================================================================
+# RAG 检索配置（需在 AgentConfig 之前定义）
+# ============================================================================
+
+DEFAULT_RAG_PROMPT_TEMPLATE = """请基于以下知识库内容回答用户问题。如果知识库中没有相关信息，请明确告知。
+
+<knowledge_base>
+{retrieved_chunks}
+</knowledge_base>
+
+用户问题：{user_query}"""
+
+
+class RetrievalConfig(BaseModel):
+    """检索配置"""
+    top_k: int = Field(default=3, ge=1, le=10, description="返回结果数量")
+    score_threshold: float = Field(default=0.6, ge=0.0, le=1.0, description="相似度阈值")
+    prompt_template: str = Field(
+        default=DEFAULT_RAG_PROMPT_TEMPLATE,
+        description="注入到 System Prompt 的模板"
+    )
+
+
 class AgentConfig(BaseModel):
     """Agent配置"""
     name: str = Field(default="助手", description="Agent名称")
@@ -102,6 +125,17 @@ class AgentConfig(BaseModel):
         ge=1,
         le=10,
         description="最大并发子Agent调用数"
+    )
+    # ========================================================================
+    # RAG 知识库挂载配置 (AC130-202603161542)
+    # ========================================================================
+    knowledge_bases: List[str] = Field(
+        default_factory=list,
+        description="挂载的知识库 ID 列表"
+    )
+    retrieval_config: Optional[RetrievalConfig] = Field(
+        default=None,
+        description="检索配置"
     )
 
 
@@ -272,3 +306,64 @@ class ExecutionRecord(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
     started_at: Optional[str] = Field(default=None, description="开始时间")
     finished_at: Optional[str] = Field(default=None, description="结束时间")
+
+
+# ============================================================================
+# RAG 知识库系统相关模型 (AC130-202603161542)
+# ============================================================================
+
+class DocumentStatus(str, Enum):
+    """文档处理状态"""
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+
+
+class KnowledgeBase(BaseModel):
+    """知识库配置"""
+    kb_id: str = Field(default_factory=lambda: f"kb_{str(uuid.uuid4())[:8]}", description="知识库唯一ID")
+    name: str = Field(description="知识库名称")
+    description: str = Field(default="", description="知识库描述")
+    embedding_model: str = Field(default="BAAI/bge-small-zh-v1.5", description="嵌入模型名称")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="更新时间")
+
+    # 统计信息（运行时计算）
+    doc_count: int = Field(default=0, description="文档数量")
+    chunk_count: int = Field(default=0, description="文档块总数")
+    total_size: int = Field(default=0, description="总文件大小(字节)")
+
+
+class Document(BaseModel):
+    """文档元数据"""
+    doc_id: str = Field(default_factory=lambda: f"doc_{str(uuid.uuid4())[:8]}", description="文档唯一ID")
+    kb_id: str = Field(description="所属知识库ID")
+    filename: str = Field(description="文件名")
+    file_size: int = Field(description="文件大小(字节)")
+    file_path: str = Field(description="存储路径")
+    mime_type: str = Field(description="MIME类型")
+    chunk_count: int = Field(default=0, description="文档块数量")
+    char_count: int = Field(default=0, description="字符数量")
+    status: DocumentStatus = Field(default=DocumentStatus.PROCESSING, description="处理状态")
+    uploaded_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="上传时间")
+    processed_at: Optional[str] = Field(default=None, description="处理完成时间")
+    error_message: Optional[str] = Field(default=None, description="错误信息")
+
+
+class Chunk(BaseModel):
+    """文档块"""
+    chunk_id: str = Field(description="块唯一ID")
+    doc_id: str = Field(description="所属文档ID")
+    content: str = Field(description="块内容")
+    chunk_index: int = Field(description="块索引")
+    start_pos: int = Field(default=0, description="在原文档中的起始位置")
+    end_pos: int = Field(default=0, description="在原文档中的结束位置")
+
+
+class RetrievalResult(BaseModel):
+    """检索结果"""
+    content: str = Field(description="文档片段内容")
+    doc_id: str = Field(description="文档ID")
+    filename: str = Field(description="文件名")
+    score: float = Field(description="相似度分数(0-1)")
+    chunk_index: int = Field(description="块索引")

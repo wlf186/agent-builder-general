@@ -4,7 +4,7 @@ Agent管理器 - 管理多个Agent实例
 import json
 import asyncio
 from pathlib import Path
-from typing import Dict, Optional, List, TYPE_CHECKING
+from typing import Dict, Optional, List, TYPE_CHECKING, Any
 from datetime import datetime
 
 from .models import AgentConfig, MCPConfig
@@ -28,7 +28,9 @@ class AgentInstance:
         skills_dir: Path = None,
         model_service_registry: ModelServiceRegistry = None,
         execution_engine: Optional["ExecutionEngine"] = None,
-        agent_manager: Optional["AgentManager"] = None  # 【AC130-202603142210】
+        agent_manager: Optional["AgentManager"] = None,  # 【AC130-202603142210】
+        kb_manager: Optional[Any] = None,  # 【AC130-202603161542】知识库管理器
+        embedder: Optional[Any] = None      # 【AC130-202603161542】向量化器
     ):
         self.config = config
         self.mcp_registry = mcp_registry
@@ -37,6 +39,8 @@ class AgentInstance:
         self.model_service_registry = model_service_registry
         self.execution_engine = execution_engine
         self.agent_manager = agent_manager  # 【AC130-202603142210】用于子Agent调用
+        self.kb_manager = kb_manager        # 【AC130-202603161542】知识库管理器
+        self.embedder = embedder            # 【AC130-202603161542】向量化器
         self.mcp_manager: Optional[MCPManager] = None
         self.engine: Optional[AgentEngine] = None
         self.created_at = datetime.now()
@@ -77,7 +81,9 @@ class AgentInstance:
                 self.skills_dir,
                 self.model_service_registry,
                 execution_engine=self.execution_engine,
-                agent_manager=self.agent_manager  # 【AC130-202603142210】
+                agent_manager=self.agent_manager,  # 【AC130-202603142210】
+                kb_manager=self.kb_manager,       # 【AC130-202603161542】
+                embedder=self.embedder            # 【AC130-202603161542】
             )
             self.engine.build_graph()
 
@@ -217,7 +223,9 @@ class AgentManager:
         skill_registry=None,
         skills_dir=None,
         model_service_registry=None,
-        execution_engine=None
+        execution_engine=None,
+        kb_manager=None,  # 【AC130-202603161542】知识库管理器
+        embedder=None     # 【AC130-202603170949】向量化器
     ):
         self.data_dir = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -226,6 +234,8 @@ class AgentManager:
         self.skills_dir = skills_dir or (Path(__file__).parent.parent / "skills")
         self.model_service_registry = model_service_registry
         self.execution_engine = execution_engine
+        self.kb_manager = kb_manager  # 【AC130-202603161542】
+        self.embedder = embedder      # 【AC130-202603170949】
         self.agents: Dict[str, AgentInstance] = {}
         self.configs: Dict[str, AgentConfig] = {}
         self._load_configs()
@@ -334,7 +344,9 @@ class AgentManager:
                 self.skills_dir,
                 self.model_service_registry,
                 execution_engine=self.execution_engine,
-                agent_manager=self  # 【AC130-202603142210】
+                agent_manager=self,        # 【AC130-202603142210】
+                kb_manager=self.kb_manager,  # 【AC130-202603161542】
+                embedder=self.embedder       # 【AC130-202603170949】
             )
             if await instance.initialize():
                 self.agents[name] = instance
@@ -351,7 +363,9 @@ class AgentManager:
             self.skill_registry,
             self.skills_dir,
             self.model_service_registry,
-            execution_engine=self.execution_engine
+            execution_engine=self.execution_engine,
+            kb_manager=self.kb_manager,  # 【AC130-202603161542】
+            embedder=self.embedder       # 【AC130-202603170949】
         )
         if await instance.initialize():
             self.agents[name] = instance

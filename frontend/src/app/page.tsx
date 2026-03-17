@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus,
@@ -30,6 +31,7 @@ import {
   History,
   AlertTriangle,
   ExternalLink,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,11 +49,15 @@ import { EnvironmentBanner } from "@/components/EnvironmentBanner";
 import { InitializationGuideCard } from "@/components/InitializationGuideCard";
 import { EnvironmentReadyNotification } from "@/components/EnvironmentReadyNotification";
 import { SubAgentSelector } from "@/components/SubAgentSelector";
+import { KnowledgeBaseSelector } from "@/components/KnowledgeBaseSelector";
+import { KnowledgeBaseDialog } from "@/components/KnowledgeBaseDialog";
+import { KbDetailPanel } from "@/components/KbDetailPanel";
 import { useLocale } from "@/lib/LocaleContext";
 import { CycleDependencyError } from "@/types";
 import { useEnvironmentStatus } from "@/hooks/useEnvironmentStatus";
 import { systemApi, CondaCheckResult } from "@/lib/systemApi";
 import { EnvironmentErrorDialog } from "@/components/EnvironmentErrorDialog";
+import { kbApi, KnowledgeBase, Document } from "@/lib/kbApi";
 
 const API_BASE = "/api";
 
@@ -186,6 +192,10 @@ export default function Home() {
   const [selectedSubAgents, setSelectedSubAgents] = useState<string[]>([]);
   const [cycleError, setCycleError] = useState<CycleDependencyError | null>(null);
 
+  // 【AC130-202603161542】知识库 RAG
+  const [selectedKnowledgeBases, setSelectedKnowledgeBases] = useState<string[]>([]);
+  const [configKnowledgeBasesExpanded, setConfigKnowledgeBasesExpanded] = useState(false);
+
   // 展开/收起状态
   const [sidebarMcpExpanded, setSidebarMcpExpanded] = useState(true);
   const [sidebarModelServicesExpanded, setSidebarModelServicesExpanded] = useState(true);
@@ -195,6 +205,14 @@ export default function Home() {
   const [configAdvancedExpanded, setConfigAdvancedExpanded] = useState(false);
   const [configToolsExpanded, setConfigToolsExpanded] = useState(true);
   const [configSkillsExpanded, setConfigSkillsExpanded] = useState(true);
+
+  // Knowledge Base states - AC130
+  const [sidebarKbExpanded, setSidebarKbExpanded] = useState(true);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [selectedKb, setSelectedKb] = useState<KnowledgeBase | null>(null);
+  const [kbDetailOpen, setKbDetailOpen] = useState(false);
+  const [kbDialogOpen, setKbDialogOpen] = useState(false);
+  const [editingKb, setEditingKb] = useState<KnowledgeBase | null>(null);
   const [configSubAgentsExpanded, setConfigSubAgentsExpanded] = useState(false);  // 【AC130 新增】
 
   // 巻加历史会话相关状态
@@ -297,6 +315,26 @@ export default function Home() {
       setSkills(data.skills || []);
     } catch (e) {
       console.error("Failed to load skills:", e);
+    }
+  };
+
+  // Load knowledge bases - AC130
+  const loadKnowledgeBases = async () => {
+    try {
+      const data = await kbApi.listKnowledgeBases();
+      setKnowledgeBases(data);
+    } catch (e) {
+      console.error("Failed to load knowledge bases:", e);
+    }
+  };
+
+  const handleDeleteKb = async (kbId: string) => {
+    if (!confirm(locale === "zh" ? "确定要删除这个知识库吗？" : "Delete this knowledge base?")) return;
+    try {
+      await kbApi.deleteKnowledgeBase(kbId);
+      await loadKnowledgeBases();
+    } catch (e) {
+      console.error("Failed to delete knowledge base:", e);
     }
   };
 
@@ -531,6 +569,7 @@ export default function Home() {
     loadMcpServices();
     loadModelServices();
     loadSkills();
+    loadKnowledgeBases();
 
     // 初始化控制台日志拦截器
     const cleanup = setupConsoleInterceptor();
@@ -557,6 +596,7 @@ export default function Home() {
       setSelectedMcpServices(config.mcp_services || []);
       setSelectedSkills(config.skills || []);
       setSelectedSubAgents(config.sub_agents || []);  // 【AC130 新增】加载子 Agent
+      setSelectedKnowledgeBases(config.knowledge_bases || []);  // 【AC130-202603161542】加载知识库
       setCycleError(null);  // 【AC130 新增】重置循环依赖错误
       setCurrentView("config");
     } catch (e) {
@@ -670,6 +710,7 @@ export default function Home() {
           mcp_services: selectedMcpServices,
           skills: selectedSkills,
           sub_agents: selectedSubAgents,  // 【AC130 新增】子 Agent 列表
+          knowledge_bases: selectedKnowledgeBases,  // 【AC130-202603161542】知识库列表
         }),
       });
       if (res.ok) {
@@ -990,6 +1031,63 @@ export default function Home() {
             )}
           </div>
 
+          {/* Knowledge Bases Section - AC130 */}
+          <div className="px-5 py-4 border-t border-white/[0.05]">
+            <div className="flex items-center justify-between mb-3">
+              <button
+                onClick={() => setSidebarKbExpanded(!sidebarKbExpanded)}
+                className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors"
+              >
+                {sidebarKbExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {locale === "zh" ? "知识库" : "Knowledge Bases"}
+                <span className="text-gray-600 normal-case">({knowledgeBases.length})</span>
+              </button>
+              <button
+                onClick={() => { setEditingKb(null); setKbDialogOpen(true); }}
+                className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
+              >
+                <Plus size={12} className="text-gray-400" />
+              </button>
+            </div>
+            {sidebarKbExpanded && (
+              <div className="space-y-1.5">
+                {knowledgeBases.length === 0 ? (
+                  <div className="text-xs text-gray-600 py-2">
+                    {locale === "zh" ? "暂无知识库" : "No knowledge bases"}
+                  </div>
+                ) : (
+                  knowledgeBases.map((kb) => (
+                    <div
+                      key={kb.kb_id}
+                      className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 group cursor-pointer"
+                      onClick={() => {
+                        setSelectedKb(kb);
+                        setKbDetailOpen(true);
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Database size={12} className="text-emerald-400" />
+                        <span className="text-sm text-gray-300">{kb.name}</span>
+                        <span className="text-[10px] text-gray-500">
+                          {kb.doc_count} {locale === "zh" ? "文档" : "docs"}
+                        </span>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteKb(kb.kb_id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 rounded transition-all"
+                      >
+                        <Trash2 size={12} className="text-red-400" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Skills Section */}
           <div className="px-5 py-4 border-t border-white/[0.05]">
             <div className="flex items-center justify-between mb-3">
@@ -1175,6 +1273,36 @@ export default function Home() {
           onClose={() => setSkillUploadDialogOpen(false)}
           onUploadSuccess={loadSkills}
         />
+
+        {/* Knowledge Base Dialog - AC130 */}
+        {kbDialogOpen && (
+          <KnowledgeBaseDialog
+            knowledgeBase={editingKb}
+            onClose={() => {
+              setKbDialogOpen(false);
+              setEditingKb(null);
+            }}
+            onSave={() => {
+              loadKnowledgeBases();
+              setKbDialogOpen(false);
+              setEditingKb(null);
+            }}
+          />
+        )}
+
+        {/* Knowledge Base Detail Panel - AC130 */}
+        {kbDetailOpen && selectedKb && (
+          <KbDetailPanel
+            knowledgeBase={selectedKb}
+            onClose={() => {
+              setKbDetailOpen(false);
+              setSelectedKb(null);
+            }}
+            onUpdate={() => {
+              loadKnowledgeBases();
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -1860,6 +1988,52 @@ export default function Home() {
             cycleError={cycleError}
             disabled={isEnvironmentCreating || isSaving}
           />
+
+          {/* 【AC130-202603161542】知识库配置 - 环境初始化期间禁用 */}
+          <Card className={cn(
+            "overflow-hidden transition-all duration-300",
+            isEnvironmentCreating && "opacity-50 pointer-events-none"
+          )}>
+            <div
+              className="px-5 py-4 border-b border-white/[0.05] flex items-center gap-3 bg-white/[0.02] cursor-pointer"
+              onClick={() => !isEnvironmentCreating && setConfigKnowledgeBasesExpanded(!configKnowledgeBasesExpanded)}
+            >
+              <BookOpen size={16} className={cn(
+                "transition-colors",
+                isEnvironmentCreating ? "text-gray-500" : "text-emerald-400"
+              )} />
+              <span className="font-medium text-sm text-gray-300 flex-1">
+                {locale === "zh" ? "知识库配置" : "Knowledge Base"}
+              </span>
+              {configKnowledgeBasesExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+              {isEnvironmentCreating && (
+                <Loader2 size={14} className="text-blue-400 animate-spin" />
+              )}
+            </div>
+            {configKnowledgeBasesExpanded && (
+              <CardContent className="p-5">
+                <p className="text-xs text-gray-500 mb-3">
+                  {locale === "zh"
+                    ? "💡 选择知识库后，智能体将基于私有文档内容回答问题"
+                    : "💡 Select knowledge bases to enable the agent to answer based on private documents"}
+                </p>
+                <KnowledgeBaseSelector
+                  selectedIds={selectedKnowledgeBases}
+                  onChange={setSelectedKnowledgeBases}
+                  disabled={isEnvironmentCreating || isSaving}
+                />
+                {selectedKnowledgeBases.length > 0 && (
+                  <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                    <p className="text-xs text-emerald-400">
+                      {locale === "zh"
+                        ? `✓ 已挂载 ${selectedKnowledgeBases.length} 个知识库`
+                        : `✓ ${selectedKnowledgeBases.length} knowledge base(s) mounted`}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            )}
+          </Card>
         </motion.div>
 
         {/* Right Panel - Chat - 环境初始化期间禁用 */}

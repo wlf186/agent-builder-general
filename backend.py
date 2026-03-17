@@ -5,10 +5,10 @@ import json
 import asyncio
 import os
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -56,7 +56,9 @@ from src.models import (
     MCPAuthType, ModelServiceConfig, ModelProvider,
     # 新增：环境相关模型
     AgentEnvironment, EnvironmentStatus, EnvironmentType,
-    FileInfo, ExecutionRecord, ExecutionStatus
+    FileInfo, ExecutionRecord, ExecutionStatus,
+    # 新增：RAG 知识库相关模型 (AC130-202603161542)
+    KnowledgeBase, Document, DocumentStatus, RetrievalConfig, RetrievalResult
 )
 from src.agent_manager import AgentManager
 from src.mcp_registry import MCPServiceRegistry
@@ -97,14 +99,21 @@ environment_manager = EnvironmentManager(DATA_DIR, ENVIRONMENTS_DIR)
 environment_creator = EnvironmentCreator(environment_manager, max_concurrent=3)
 file_storage_manager = FileStorageManager(FILES_DIR)
 execution_engine = ExecutionEngine(environment_manager, file_storage_manager, DATA_DIR)
+# 新增：RAG 知识库管理器 (AC130-202603161542)
+from src.knowledge_base_manager import KnowledgeBaseManager
+from src.embedder import Embedder
+kb_manager = KnowledgeBaseManager(DATA_DIR)
+embedder = Embedder()  # 【AC130-202603170949】向量化器
 
-# 初始化 AgentManager，传入 execution_engine
+# 初始化 AgentManager，传入 execution_engine、kb_manager 和 embedder
 manager = AgentManager(
     DATA_DIR,
     mcp_registry,
     skill_registry,
     model_service_registry=model_service_registry,
-    execution_engine=execution_engine
+    execution_engine=execution_engine,
+    kb_manager=kb_manager,  # 【AC130-202603161542】
+    embedder=embedder       # 【AC130-202603170949】
 )
 
 # 注册预置 MCP 服务
@@ -250,6 +259,9 @@ class CreateAgentRequest(BaseModel):
     sub_agent_timeout: int = 60
     sub_agent_max_retries: int = 1
     sub_agent_max_concurrent: int = 3
+    # 【AC130-202603170949】RAG 知识库配置
+    knowledge_bases: List[str] = []
+    retrieval_config: Optional[Dict[str, Any]] = None
 
 
 class UpdateAgentRequest(BaseModel):
@@ -272,6 +284,11 @@ class UpdateAgentRequest(BaseModel):
     sub_agent_timeout: int = 60
     sub_agent_max_retries: int = 1
     sub_agent_max_concurrent: int = 3
+    # ====================================================================
+    # 【AC130-202603170949】RAG 知识库配置
+    # ====================================================================
+    knowledge_bases: List[str] = []
+    retrieval_config: Optional[Dict[str, Any]] = None
 
 
 class CreateModelServiceRequest(BaseModel):
@@ -455,7 +472,10 @@ async def create_agent(req: CreateAgentRequest):
         sub_agents=req.sub_agents,
         sub_agent_timeout=req.sub_agent_timeout,
         sub_agent_max_retries=req.sub_agent_max_retries,
-        sub_agent_max_concurrent=req.sub_agent_max_concurrent
+        sub_agent_max_concurrent=req.sub_agent_max_concurrent,
+        # 【AC130-202603170949】RAG知识库字段
+        knowledge_bases=req.knowledge_bases,
+        retrieval_config=req.retrieval_config
     )
 
     if manager.create_agent_config(config):
@@ -511,7 +531,10 @@ async def get_agent(name: str):
         "sub_agents": getattr(config, 'sub_agents', []) or [],
         "sub_agent_timeout": getattr(config, 'sub_agent_timeout', 60),
         "sub_agent_max_retries": getattr(config, 'sub_agent_max_retries', 1),
-        "sub_agent_max_concurrent": getattr(config, 'sub_agent_max_concurrent', 3)
+        "sub_agent_max_concurrent": getattr(config, 'sub_agent_max_concurrent', 3),
+        # 【AC130-202603170949】返回RAG知识库配置
+        "knowledge_bases": getattr(config, 'knowledge_bases', []) or [],
+        "retrieval_config": getattr(config, 'retrieval_config', None)
     }
 
 
@@ -575,7 +598,10 @@ async def update_agent(name: str, req: UpdateAgentRequest):
         sub_agents=req.sub_agents,
         sub_agent_timeout=req.sub_agent_timeout,
         sub_agent_max_retries=req.sub_agent_max_retries,
-        sub_agent_max_concurrent=req.sub_agent_max_concurrent
+        sub_agent_max_concurrent=req.sub_agent_max_concurrent,
+        # 【AC130-202603170949】RAG知识库字段
+        knowledge_bases=req.knowledge_bases,
+        retrieval_config=req.retrieval_config
     )
 
     if manager.update_agent_config(name, config):
@@ -823,10 +849,13 @@ async def chat_stream(name: str, req: ChatRequest):
             # 构建文件上下文（增强版，包含 file_id 表格和调用示例）
             file_context = ""
             file_ids_list = []
+            print(f"[DEBUG] req.file_ids = {req.file_ids}")
             if req.file_ids:
                 try:
                     files = await file_storage_manager.list_files(name)
+                    print(f"[DEBUG] 所有文件: {[(f.file_id, f.filename) for f in files]}")
                     matched_files = [f for f in files if f.file_id in req.file_ids]
+                    print(f"[DEBUG] matched_files = {[(f.file_id, f.filename) for f in matched_files]}")
                     if matched_files:
                         file_context = "\n\n=== 用户上传的文件 ===\n\n"
                         file_context += "| file_id | 文件名 | 类型 | 大小 |\n"
@@ -2106,6 +2135,242 @@ async def get_execution(name: str, execution_id: str):
             "started_at": record.started_at,
             "finished_at": record.finished_at
         }
+    }
+
+
+# ============================================================================
+# RAG 知识库 API (AC130-202603161542)
+# ============================================================================
+
+class CreateKnowledgeBaseRequest(BaseModel):
+    """创建知识库请求"""
+    name: str
+    description: str = ""
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
+
+
+class SearchRequest(BaseModel):
+    """检索请求"""
+    query: str
+    top_k: int = 3
+    score_threshold: float = 0.6
+
+
+@app.get("/api/knowledge-bases")
+async def list_knowledge_bases():
+    """列出所有知识库"""
+    try:
+        kbs = kb_manager.list_kb()
+        return {
+            "knowledge_bases": [
+                {
+                    "kb_id": kb.kb_id,
+                    "name": kb.name,
+                    "description": kb.description,
+                    "embedding_model": kb.embedding_model,
+                    "created_at": kb.created_at,
+                    "updated_at": kb.updated_at,
+                    "doc_count": kb.doc_count,
+                    "chunk_count": kb.chunk_count,
+                    "total_size": kb.total_size
+                }
+                for kb in kbs
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取知识库列表失败: {e}")
+
+
+@app.post("/api/knowledge-bases")
+async def create_knowledge_base(req: CreateKnowledgeBaseRequest):
+    """创建知识库"""
+    try:
+        kb = kb_manager.create_kb(
+            name=req.name,
+            description=req.description,
+            embedding_model=req.embedding_model
+        )
+        return {
+            "kb_id": kb.kb_id,
+            "name": kb.name,
+            "description": kb.description,
+            "embedding_model": kb.embedding_model,
+            "created_at": kb.created_at,
+            "updated_at": kb.updated_at,
+            "doc_count": kb.doc_count,
+            "chunk_count": kb.chunk_count
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建知识库失败: {e}")
+
+
+@app.get("/api/knowledge-bases/{kb_id}")
+async def get_knowledge_base(kb_id: str):
+    """获取知识库详情"""
+    kb = kb_manager.get_kb(kb_id)
+    if not kb:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+
+    return {
+        "kb_id": kb.kb_id,
+        "name": kb.name,
+        "description": kb.description,
+        "embedding_model": kb.embedding_model,
+        "created_at": kb.created_at,
+        "updated_at": kb.updated_at,
+        "doc_count": kb.doc_count,
+        "chunk_count": kb.chunk_count,
+        "total_size": kb.total_size
+    }
+
+
+@app.delete("/api/knowledge-bases/{kb_id}")
+async def delete_knowledge_base(kb_id: str):
+    """删除知识库"""
+    success = kb_manager.delete_kb(kb_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+    return {"message": "知识库已删除"}
+
+
+@app.get("/api/knowledge-bases/{kb_id}/documents")
+async def list_documents(kb_id: str):
+    """列出知识库中的所有文档"""
+    if kb_id not in kb_manager._configs:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+
+    documents = kb_manager.list_documents(kb_id)
+    return {
+        "documents": [
+            {
+                "doc_id": doc.doc_id,
+                "filename": doc.filename,
+                "file_size": doc.file_size,
+                "mime_type": doc.mime_type,
+                "chunk_count": doc.chunk_count,
+                "char_count": doc.char_count,
+                "status": doc.status.value,
+                "uploaded_at": doc.uploaded_at,
+                "processed_at": doc.processed_at
+            }
+            for doc in documents
+        ]
+    }
+
+
+@app.post("/api/knowledge-bases/{kb_id}/documents")
+async def upload_document(kb_id: str, file: UploadFile):
+    """上传文档到知识库"""
+    from src.document_processor import DocumentProcessor
+
+    if kb_id not in kb_manager._configs:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+
+    # 验证文件类型
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in DocumentProcessor.SUPPORTED_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件格式: {suffix}。支持的格式: {', '.join(DocumentProcessor.SUPPORTED_FORMATS)}"
+        )
+
+    # 验证文件大小
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+        content = await file.read()
+        if len(content) > 10 * 1024 * 1024:  # 10MB
+            raise HTTPException(status_code=400, detail="文件过大，最大支持 10MB")
+        tmp_file.write(content)
+        tmp_path = Path(tmp_file.name)
+
+    try:
+        document = kb_manager.add_document(
+            kb_id=kb_id,
+            file_path=tmp_path,
+            filename=file.filename
+        )
+
+        return {
+            "doc_id": document.doc_id,
+            "filename": document.filename,
+            "file_size": document.file_size,
+            "mime_type": document.mime_type,
+            "chunk_count": document.chunk_count,
+            "char_count": document.char_count,
+            "status": document.status.value,
+            "uploaded_at": document.uploaded_at,
+            "processed_at": document.processed_at,
+            "error_message": document.error_message
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文档处理失败: {e}")
+    finally:
+        # 清理临时文件
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
+@app.delete("/api/knowledge-bases/{kb_id}/documents/{doc_id}")
+async def delete_document(kb_id: str, doc_id: str):
+    """删除文档"""
+    if kb_id not in kb_manager._configs:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+
+    success = kb_manager.delete_document(kb_id, doc_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    return {"message": "文档已删除"}
+
+
+@app.post("/api/knowledge-bases/{kb_id}/search")
+async def search_knowledge_base(kb_id: str, req: SearchRequest):
+    """检索知识库"""
+    if kb_id not in kb_manager._configs:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+
+    try:
+        retriever = kb_manager.get_retriever(kb_id)
+        results = retriever.search(
+            query=req.query,
+            top_k=req.top_k,
+            score_threshold=req.score_threshold
+        )
+
+        return {
+            "results": [
+                {
+                    "content": r.content,
+                    "doc_id": r.doc_id,
+                    "filename": r.filename,
+                    "score": r.score,
+                    "chunk_index": r.chunk_index
+                }
+                for r in results
+            ]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"检索失败: {e}")
+
+
+@app.get("/api/knowledge-bases/{kb_id}/stats")
+async def get_knowledge_base_stats(kb_id: str):
+    """获取知识库统计信息"""
+    kb = kb_manager.get_kb(kb_id)
+    if not kb:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+
+    return {
+        "kb_id": kb.kb_id,
+        "doc_count": kb.doc_count,
+        "chunk_count": kb.chunk_count,
+        "total_size": kb.total_size
     }
 
 

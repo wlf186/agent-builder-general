@@ -63,7 +63,9 @@ class AgentEngine:
         skills_dir: Path = None,
         model_service_registry: Optional[ModelServiceRegistry] = None,
         execution_engine: Optional["ExecutionEngine"] = None,
-        agent_manager: Optional["AgentManager"] = None
+        agent_manager: Optional["AgentManager"] = None,
+        kb_manager: Optional[Any] = None,  # 知识库管理器
+        embedder: Optional[Any] = None      # 向量化器
     ):
         self.config = config
         self.mcp_manager = mcp_manager
@@ -102,6 +104,17 @@ class AgentEngine:
         self._sub_agent_semaphore: Optional[asyncio.Semaphore] = None
         # 循环检测器（延迟初始化）
         self._cycle_detector: Optional[CycleDetector] = None
+
+        # ====================================================================
+        # 【AC130-202603161542】RAG 知识库支持
+        # ====================================================================
+        self.kb_manager = kb_manager
+        self.embedder = embedder
+        self._retrievers: Dict[str, Any] = {}  # kb_id -> Retriever
+
+        # 预加载知识库检索器
+        if kb_manager and config.knowledge_bases:
+            self._init_retrievers()
 
     def _refresh_skill_tool_if_needed(self):
         """检查并刷新skill_tool的enabled_skills（用于配置热更新）"""
@@ -202,6 +215,12 @@ class AgentEngine:
         if sub_agent_tools:
             tools_to_bind.extend(sub_agent_tools)
             print(f"[DEBUG] 绑定 {len(sub_agent_tools)} 个子Agent工具")
+
+        # 4. 【AC130-202603161918】RAG 知识库检索工具
+        self._rag_tools = self._create_rag_tools()
+        if self._rag_tools:
+            tools_to_bind.extend(self._rag_tools)
+            print(f"[DEBUG] 绑定 {len(self._rag_tools)} 个RAG检索工具")
 
         if not tools_to_bind:
             print(f"[DEBUG] 没有工具需要绑定")
@@ -382,6 +401,88 @@ Returns:
 
         return tools
 
+    # ========================================================================
+    # 【AC130-202603161918】RAG 知识库检索工具创建
+    # ========================================================================
+
+    def _create_rag_tools(self) -> List:
+        """
+        创建RAG知识库检索相关的LangChain工具
+
+        Returns:
+            LangChain Tool 列表
+        """
+        from langchain_core.tools import StructuredTool
+
+        tools = []
+
+        # 只有配置了知识库时才创建工具
+        if not self.config.knowledge_bases:
+            return tools
+
+        # 构建知识库描述信息
+        kb_descriptions = []
+        if self.kb_manager:
+            for kb_id in self.config.knowledge_bases:
+                kb = self.kb_manager.get_kb(kb_id)
+                if kb:
+                    kb_descriptions.append(f"- **{kb.name}**: {kb.description or '无描述'}")
+
+        kb_list_text = "\n".join(kb_descriptions) if kb_descriptions else "无可用知识库"
+
+        # 创建 rag_retrieve 工具
+        tool_description = f"""从挂载的知识库中检索相关文档内容。
+
+**可用知识库**：
+{kb_list_text}
+
+**使用指南**：
+1. 仅在需要查询内部文档、公司制度、产品手册等信息时调用
+2. 调用后会返回相关文档片段，请在回答中标注引用来源
+3. 如果知识库中没有相关信息，请明确告知用户
+
+Args:
+    query: 检索查询语句（问题关键词）
+    top_k: 返回结果数量，默认3个，最多5个
+
+Returns:
+    检索到的相关文档片段及来源信息
+"""
+
+        def _run_retrieve(query: str, top_k: int = 3) -> str:
+            return f"[RAG_RETRIEVE] {query}|{top_k}"
+
+        async def _arun_retrieve(query: str, top_k: int = 3) -> str:
+            return f"[RAG_RETRIEVE] {query}|{top_k}"
+
+        # 创建输入 schema
+        args_schema = {
+            "title": "rag_retrieve_schema",
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "检索查询语句（问题关键词或完整问题）"
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "返回结果数量（1-5），默认3"
+                }
+            },
+            "required": ["query"]
+        }
+
+        rag_tool = StructuredTool(
+            name="rag_retrieve",
+            description=tool_description,
+            func=_run_retrieve,
+            coroutine=_arun_retrieve,
+            args_schema=args_schema
+        )
+
+        tools.append(rag_tool)
+        return tools
+
     async def _execute_sub_agent(
         self,
         sub_agent_name: str,
@@ -522,6 +623,97 @@ Returns:
             self._cycle_detector = CycleDetector(all_agent_names)
         return self._cycle_detector
 
+    # ========================================================================
+    # 【AC130-202603161542】RAG 知识库检索方法
+    # ========================================================================
+
+    def _init_retrievers(self):
+        """初始化知识库检索器"""
+        if not self.kb_manager or not self.config.knowledge_bases:
+            print(f"[DEBUG] _init_retrievers: kb_manager={self.kb_manager}, knowledge_bases={self.config.knowledge_bases}")
+            return
+
+        print(f"[DEBUG] _init_retrievers: embedder={self.embedder}, kb_manager={type(self.kb_manager)}")
+
+        try:
+            from src.retriever import Retriever
+
+            for kb_id in self.config.knowledge_bases:
+                if kb_id in self.kb_manager._configs:
+                    collection = self.kb_manager._get_collection(kb_id)
+                    print(f"[DEBUG] 创建 Retriever: kb_id={kb_id}, collection={collection}, embedder={self.embedder}")
+                    self._retrievers[kb_id] = Retriever(collection, self.embedder)
+
+            print(f"[DEBUG] 初始化了 {len(self._retrievers)} 个知识库检索器")
+
+        except Exception as e:
+            print(f"[ERROR] 初始化检索器失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def _retrieve_for_query(self, query: str) -> str:
+        """为查询检索知识库内容
+
+        Args:
+            query: 用户查询
+
+        Returns:
+            str: 格式化的检索结果，如果无结果返回空字符串
+        """
+        if not self.config.knowledge_bases or not self._retrievers:
+            return ""
+
+        config = self.config.retrieval_config
+        if not config:
+            return ""
+
+        all_results = []
+
+        # 从所有挂载的知识库中检索
+        for kb_id in self.config.knowledge_bases:
+            retriever = self._retrievers.get(kb_id)
+            if retriever:
+                try:
+                    results = retriever.search(
+                        query,
+                        top_k=config.top_k,
+                        score_threshold=config.score_threshold
+                    )
+                    all_results.extend(results)
+                except Exception as e:
+                    print(f"[ERROR] 检索失败 (kb_id={kb_id}): {e}")
+
+        if not all_results:
+            return ""
+
+        # 按相似度排序，取 Top-K
+        all_results.sort(key=lambda x: x.score, reverse=True)
+        top_results = all_results[:config.top_k]
+
+        # 格式化为上下文
+        return self._format_retrieved_context(top_results)
+
+    def _format_retrieved_context(self, results: List[Any]) -> str:
+        """格式化检索结果为上下文字符串
+
+        Args:
+            results: RetrievalResult 列表
+
+        Returns:
+            str: 格式化的上下文
+        """
+        if not results:
+            return ""
+
+        chunks = []
+        for i, r in enumerate(results, 1):
+            chunks.append(
+                f"[{i}] {r.content}\n"
+                f"    来源: {r.filename} (相关度: {r.score:.2f})"
+            )
+
+        return "\n".join(chunks)
+
     def _get_system_prompt(self) -> str:
         """获取系统提示词"""
         base_prompt = self.config.persona
@@ -648,6 +840,47 @@ Returns:
                 input_file_ids=input_file_ids,
                 timeout=timeout
             )
+
+        # ====================================================================
+        # 【AC130-202603161918】处理RAG知识库检索工具
+        # ====================================================================
+        if tool_name == "rag_retrieve":
+            query = tool_args.get("query", "")
+            top_k = tool_args.get("top_k", 3)
+            # 限制 top_k 范围
+            top_k = max(1, min(5, int(top_k))) if isinstance(top_k, (int, str)) else 3
+
+            if not query:
+                return "错误: 检索查询不能为空"
+
+            if not self._retrievers:
+                return "错误: 知识库检索器未初始化"
+
+            try:
+                all_results = []
+                for kb_id, retriever in self._retrievers.items():
+                    results = retriever.search(query, top_k=top_k)
+                    all_results.extend(results)
+
+                if not all_results:
+                    return f"未找到与 '{query}' 相关的文档内容。请尝试其他关键词或告知用户该问题不在知识库范围内。"
+
+                # 按相似度排序，取 Top-K
+                all_results.sort(key=lambda x: x.score, reverse=True)
+                top_results = all_results[:top_k]
+
+                # 格式化结果
+                formatted_parts = []
+                for i, r in enumerate(top_results, 1):
+                    formatted_parts.append(
+                        f"[{i}] {r.content}\n"
+                        f"    来源: {r.filename} (相关度: {r.score:.2%})"
+                    )
+
+                return "检索到以下相关内容：\n\n" + "\n".join(formatted_parts)
+
+            except Exception as e:
+                return f"检索失败: {str(e)}"
 
         # ====================================================================
         # 【AC130-202603142210】处理子Agent调用
@@ -1332,6 +1565,25 @@ BEST: 编号"""
             self.build_graph()
 
         messages = []
+
+        # ====================================================================
+        # 【AC130-202603161542】RAG 知识库检索
+        # ====================================================================
+        # 检索知识库并注入系统消息
+        kb_context = await self._retrieve_for_query(user_input)
+        if kb_context:
+            retrieval_config = self.config.retrieval_config
+            if retrieval_config:
+                kb_system_msg = retrieval_config.prompt_template.format(
+                    retrieved_chunks=kb_context,
+                    user_query=user_input
+                )
+            else:
+                kb_system_msg = f"""请基于以下知识库内容回答用户问题。如果知识库中没有相关信息，请明确告知。
+
+{kb_context}"""
+            messages.append(SystemMessage(content=kb_system_msg))
+
         if history:
             for msg in history:
                 if msg.get("role") == "user":
@@ -1413,6 +1665,40 @@ BEST: 编号"""
         if file_context:
             system_prompt += file_context
             system_prompt += "\n\n请优先处理用户上传的文件内容。"
+
+        # ====================================================================
+        # 【AC130-202603161542】RAG 知识库检索
+        # 【AC130-202603161918】调整为工具模式优先
+        # ====================================================================
+        # 如果配置了知识库但未绑定工具（兼容模式），自动注入检索上下文
+        # 如果已绑定 rag_retrieve 工具，让 LLM 自主决定是否调用
+        kb_context = ""
+        if self.config.knowledge_bases and self._retrievers:
+            # 检查是否已绑定 RAG 工具
+            has_rag_tool = any(t.name == "rag_retrieve" for t in getattr(self, '_rag_tools', []))
+
+            if not has_rag_tool:
+                # 兼容模式：自动检索并注入上下文
+                kb_context = await self._retrieve_for_query(user_input)
+
+            if kb_context:
+                retrieval_config = self.config.retrieval_config
+                if retrieval_config:
+                    # 使用配置的提示词模板
+                    kb_prompt = retrieval_config.prompt_template.format(
+                        retrieved_chunks=kb_context,
+                        user_query=user_input
+                    )
+                else:
+                    # 默认模板
+                    kb_prompt = f"""
+## 知识库内容
+
+请基于以下知识库内容回答用户问题。如果知识库中没有相关信息，请明确告知。
+
+{kb_context}
+"""
+                system_prompt += kb_prompt
 
         # 构建工具描述
         tools_desc = ""
@@ -1502,11 +1788,11 @@ BEST: 编号"""
 
 ### 示例3：加载技能（重要！）
 用户：如何处理 PDF 文件？
-助手：{{"tool": "load_skill", "arguments": {{"skill_name": "{self.skill_tool.enabled_skills[0] if self.skill_tool.enabled_skills else "技能名"}"}}}}
+助手：{{"tool": "load_skill", "arguments": {{"skill_name": "{self.skill_tool.enabled_skills[0] if self.skill_tool and self.skill_tool.enabled_skills else "技能名"}"}}}}
 
 ### 示例4： 执行技能脚本（处理上传文件！）
 用户：读取这个 PDF 文件的内容
-助手：{{"tool": "execute_skill", "arguments": {{"skill_name": "{self.skill_tool.enabled_skills[0] if self.skill_tool.enabled_skills else "技能名"}", "input_file_ids": ["文件ID"], "arguments": ["./input/document.pdf"]}}}}
+助手：{{"tool": "execute_skill", "arguments": {{"skill_name": "{self.skill_tool.enabled_skills[0] if self.skill_tool and self.skill_tool.enabled_skills else "技能名"}", "input_file_ids": ["文件ID"], "arguments": ["./input/document.pdf"]}}}}
 
 **可用技能**: {skills_list}
 当用户询问与这些技能相关的问题时，**必须先调用 load_skill 工具加载对应技能**！
@@ -1732,6 +2018,11 @@ BEST: 编号"""
                         is_skill_tool = tool_name == SkillTool.TOOL_NAME or tool_name == SkillTool.EXECUTE_TOOL_NAME
 
                         # ====================================================================
+                        # 【AC130-202603161918】检测是否是 RAG 知识库检索工具
+                        # ====================================================================
+                        is_rag_tool = tool_name == "rag_retrieve"
+
+                        # ====================================================================
                         # 【AC130-202603142210】检测是否是子Agent工具
                         # ====================================================================
                         is_sub_agent_tool = tool_name.startswith("call_agent_")
@@ -1766,6 +2057,9 @@ BEST: 编号"""
                                 service_display = "skill-system"
                             elif is_sub_agent_tool and sub_agent_name:
                                 service_display = f"agent:{sub_agent_name}"
+                            elif is_rag_tool:
+                                service_display = "knowledge-base"
+
                         yield {
                             "type": "tool_call",
                             "name": tool_name,
@@ -1794,6 +2088,17 @@ BEST: 编号"""
                                 "type": "sub_agent_call",
                                 "agent_name": sub_agent_name,
                                 "message": sub_agent_message,
+                                "call_id": call_id
+                            }
+
+                        # ====================================================================
+                        # 【AC130-202603161918】发送RAG检索开始事件
+                        # ====================================================================
+                        if is_rag_tool:
+                            query = tool_args.get("query", "")
+                            yield {
+                                "type": "rag_retrieve",
+                                "query": query,
                                 "call_id": call_id
                             }
 
