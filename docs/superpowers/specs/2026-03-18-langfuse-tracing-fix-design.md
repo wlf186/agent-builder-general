@@ -1,7 +1,7 @@
 # Langfuse Tracing Integration Fix
 
 **Date**: 2026-03-18
-**Status**: Draft
+**Status**: Approved
 **Author**: Claude
 
 ## Problem Statement
@@ -49,9 +49,7 @@ Use existing `docker-compose.langfuse.yml`:
 - Services: langfuse-web, langfuse-worker, postgres, clickhouse, redis, minio
 - Ports: 3000 (Web UI), 5432 (PostgreSQL), 9000/8123 (ClickHouse), 6379 (Redis)
 
-**Important Configuration Fix**:
-- `docker/clickhouse/config.xml` sets password to `langfuse123`
-- `docker-compose.langfuse.yml` must use `CLICKHOUSE_PASSWORD=langfuse123`
+**Configuration**: All passwords already match between docker-compose and clickhouse config.
 
 Startup sequence:
 1. `docker-compose -f docker-compose.langfuse.yml up -d`
@@ -77,39 +75,80 @@ Validation:
 
 #### 4. Verification
 
-Use existing UAT test:
+Use existing UAT test suite:
 ```bash
 cd frontend && npx playwright test langfuse-uat.spec.ts --headed
 ```
+
+Test cases:
+- TC-001: Simple conversation creates trace
+- TC-002: Tool call creates span (calculator)
+- TC-003: Multi-turn conversation linked by session_id
+- TC-004: LLM usage tracking (tokens)
+- TC-005: Tool error handling
+- TC-006: Token usage verification
+- TC-007: Performance metadata (duration_ms)
 
 Manual verification:
 - Open `http://localhost:3000`
 - Navigate to Traces
 - Verify trace tree shows LLM calls and tool calls
 
+## Troubleshooting
+
+If Docker containers fail to start:
+
+1. **Check container logs**:
+   ```bash
+   docker-compose -f docker-compose.langfuse.yml logs langfuse-web
+   ```
+
+2. **Common issues**:
+   - **Port conflicts**: Ensure ports 3000, 5432, 8123, 9000, 9001, 6379 are available
+   - **Insufficient memory**: Langfuse stack needs ~8GB RAM
+   - **ClickHouse connection**: Verify with `docker exec langfuse-clickhouse clickhouse-client`
+
+3. **Reset environment**:
+   ```bash
+   docker-compose -f docker-compose.langfuse.yml down -v  # Warning: deletes all data
+   docker-compose -f docker-compose.langfuse.yml up -d
+   ```
+
+## Data Persistence
+
+Docker volumes are used for data persistence:
+- `langfuse_postgres_data` - PostgreSQL data
+- `langfuse_clickhouse_data` - ClickHouse trace data
+- `langfuse_redis_data` - Redis cache
+- `langfuse_minio_data` - Object storage
+
+**Note**: Data survives container restarts. To completely reset:
+```bash
+docker-compose -f docker-compose.langfuse.yml down -v  # Removes all volumes
+```
+
 ## Security Considerations
 
 - Default passwords in docker-compose are for **local development only**
 - Change `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY` for production
 - PostgreSQL password (`changeme`) and MinIO credentials (`minioadmin`) should be changed
+- Never commit `.env` with real API keys to version control
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `docker-compose.langfuse.yml` | Fix `CLICKHOUSE_PASSWORD=langfuse123` (both occurrences) |
 | `.env` | Replace placeholder keys with real keys (manual) |
 
-**No Python code changes required.**
+**No code orconfiguration changes required.**
 
 ## Testing Plan
 
 1. **Unit**: N/A (no code changes)
 2. **Integration**: Start Docker, verify Langfuse UI accessible
 3. **UAT**: Run `langfuse-uat.spec.ts`
-   - TC-001: Simple conversation creates trace
-   - TC-002: Tool call creates span
-   - TC-003: Multi-turn conversation linked by session_id
+   - Minimum: TC-001, TC-002, TC-003
+   - Full suite: TC-001 through TC-007
 
 ## Rollback Plan
 
