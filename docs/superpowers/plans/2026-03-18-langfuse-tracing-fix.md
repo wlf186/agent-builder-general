@@ -115,6 +115,7 @@ Expected: Langfuse welcome/setup page
 - [ ] **Step 2: Complete initial setup (if first time)**
 
 Action: Follow setup wizard to create admin account
+Note: Use memorable credentials (e.g., admin@local.dev / your-password)
 Expected: Able to log in to Langfuse dashboard
 
 - [ ] **Step 3: Create a new Project**
@@ -176,6 +177,14 @@ Expected: `LANGFUSE_ENABLED=true`
 Run: `grep -E "LANGFUSE_" .env`
 Expected: All four variables set with real values (not placeholders)
 
+- [ ] **Step 6: Validate keys are not placeholders**
+
+Run:
+```bash
+grep -E "LANGFUSE_(PUBLIC|SECRET)_KEY=.*(xxxx|a1b2c3|x1y2z3)" .env && echo "WARNING: Keys appear to be placeholders!" || echo "Keys validated"
+```
+Expected: "Keys validated" (no warning)
+
 ---
 
 ## Task 6: Verify Integration
@@ -193,9 +202,14 @@ Expected: Backend starts and shows "[Langfuse] 已启用: http://localhost:3000"
 
 - [ ] **Step 2: Run UAT test suite**
 
-Run:
+Run (headed mode with browser):
 ```bash
 cd frontend && npx playwright test langfuse-uat.spec.ts --headed
+```
+
+Or run headless (no browser):
+```bash
+cd frontend && npx playwright test langfuse-uat.spec.ts
 ```
 Expected: All tests pass (TC-001 through TC-007)
 
