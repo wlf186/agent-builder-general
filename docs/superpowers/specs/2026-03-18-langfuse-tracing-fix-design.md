@@ -7,7 +7,7 @@
 ## Problem Statement
 
 Agent Builder has existing Langfuse tracing code but it's not working:
-- `langfuse` Python SDK not installed
+- `langfuse` Python SDK not installed (now fixed - already in requirements.txt)
 - `.env` contains placeholder API keys (`pk-lf-a1b2c3d4e5f6g7h8`)
 - Docker stack not running (localhost:3000 returns 404)
 
@@ -22,6 +22,15 @@ Users cannot see traces of LLM calls, tool calls, or conversation flows.
 | Automated UAT test verification | Must |
 | Minimal code changes | Should |
 
+## Prerequisites
+
+Before starting, ensure:
+- **Docker Engine** 20.x+ installed
+- **Docker Compose** 2.x+ installed
+- **Available ports**: 3000, 5432, 8123, 9000, 9001, 6379
+- **Minimum 8GB RAM** for Langfuse stack
+- **Python dependencies**: `pip install -r requirements.txt` (includes `langfuse>=2.0.0`)
+
 ## Solution: Minimal Fix (Approach A)
 
 Fix only what's broken without modifying the existing tracing code.
@@ -30,18 +39,19 @@ Fix only what's broken without modifying the existing tracing code.
 
 #### 1. Dependencies
 
-Add to `requirements.txt`:
-```
-langfuse>=2.0.0
-```
-
-No code changes needed - the SDK provides the client.
+**Note**: `langfuse>=2.0.0` is already in `requirements.txt` - no changes needed.
+- Install with: `pip install -r requirements.txt`
+- Langfuse SDK provides non-blocking client with async queue support
 
 #### 2. Docker Setup
 
 Use existing `docker-compose.langfuse.yml`:
 - Services: langfuse-web, langfuse-worker, postgres, clickhouse, redis, minio
 - Ports: 3000 (Web UI), 5432 (PostgreSQL), 9000/8123 (ClickHouse), 6379 (Redis)
+
+**Important Configuration Fix**:
+- `docker/clickhouse/config.xml` sets password to `langfuse123`
+- `docker-compose.langfuse.yml` must use `CLICKHOUSE_PASSWORD=langfuse123`
 
 Startup sequence:
 1. `docker-compose -f docker-compose.langfuse.yml up -d`
@@ -77,11 +87,17 @@ Manual verification:
 - Navigate to Traces
 - Verify trace tree shows LLM calls and tool calls
 
+## Security Considerations
+
+- Default passwords in docker-compose are for **local development only**
+- Change `LANGFUSE_NEXTAUTH_SECRET`, `LANGFUSE_SALT`, `LANGFUSE_ENCRYPTION_KEY` for production
+- PostgreSQL password (`changeme`) and MinIO credentials (`minioadmin`) should be changed
+
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| `requirements.txt` | Add `langfuse>=2.0.0` |
+| `docker-compose.langfuse.yml` | Fix `CLICKHOUSE_PASSWORD=langfuse123` (both occurrences) |
 | `.env` | Replace placeholder keys with real keys (manual) |
 
 **No Python code changes required.**
@@ -99,7 +115,8 @@ Manual verification:
 
 If issues arise:
 1. Set `LANGFUSE_ENABLED=false` in `.env`
-2. Tracing disabled, no impact on core functionality
+2. Stop Docker: `docker-compose -f docker-compose.langfuse.yml down`
+3. Tracing disabled, no impact on core functionality
 
 ## Success Criteria
 
