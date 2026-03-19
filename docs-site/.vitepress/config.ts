@@ -3,8 +3,11 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   title: 'Agent Builder User Guide',
 
+  // 必须设置 base 路径，因为 docs-site 被代理到 /docs 路径
+  base: '/docs/',
+
   locales: {
-    root: {
+    en: {
       label: 'English',
       lang: 'en',
       link: '/en/',
@@ -21,9 +24,10 @@ export default defineConfig({
     siteTitle: 'Agent Builder',
 
     nav: [
-      { text: 'Getting Started', link: '/getting-started' },
-      { text: 'Core Features', link: '/core/' },
-      { text: 'Advanced', link: '/advanced/' },
+      { text: 'Getting Started', link: '/en/getting-started' },
+      { text: 'Core Features', link: '/en/core/' },
+      { text: 'Advanced', link: '/en/advanced/' },
+      { text: 'Help', link: '/en/help/faq' },
     ],
 
     sidebar: {
@@ -51,6 +55,23 @@ export default defineConfig({
             { text: 'Model Services', link: '/en/advanced/model-service-dialog' },
             { text: 'MCP Services', link: '/en/advanced/mcp-service-dialog' },
             { text: 'Skills', link: '/en/advanced/skill-detail-dialog' },
+            { text: 'Langfuse Tracing', link: '/en/advanced/langfuse' },
+          ],
+        },
+        {
+          text: 'Reference',
+          collapsed: true,
+          items: [
+            { text: 'Sub-Agent Call Card', link: '/en/reference/sub-agent-call-card' },
+            { text: 'Environment Status', link: '/en/reference/environment-banner' },
+          ],
+        },
+        {
+          text: 'Help',
+          collapsed: false,
+          items: [
+            { text: 'FAQ', link: '/en/help/faq' },
+            { text: 'Troubleshooting', link: '/en/help/troubleshooting' },
           ],
         },
       ],
@@ -78,6 +99,23 @@ export default defineConfig({
             { text: '模型服务', link: '/zh/advanced/model-service-dialog' },
             { text: 'MCP服务', link: '/zh/advanced/mcp-service-dialog' },
             { text: '技能', link: '/zh/advanced/skill-detail-dialog' },
+            { text: 'Langfuse追踪', link: '/zh/advanced/langfuse' },
+          ],
+        },
+        {
+          text: '参考',
+          collapsed: true,
+          items: [
+            { text: '子智能体调用卡', link: '/zh/reference/sub-agent-call-card' },
+            { text: '环境状态', link: '/zh/reference/environment-banner' },
+          ],
+        },
+        {
+          text: '帮助',
+          collapsed: false,
+          items: [
+            { text: '常见问题', link: '/zh/help/faq' },
+            { text: '故障排除', link: '/zh/help/troubleshooting' },
           ],
         },
       ],

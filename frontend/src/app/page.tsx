@@ -1143,7 +1143,7 @@ export default function Home() {
                   <ExternalLink size={12} className="text-gray-500 group-hover:text-gray-400" />
                 </a>
                 <a
-                  href="/langfuse"
+                  href="http://localhost:3000"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 group cursor-pointer"
