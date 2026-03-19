@@ -1,4 +1,11 @@
 {
+  "scripts": {
+    "docs:extract": "tsx scripts/extract-user-guide.ts",
+    "docs:validate": "tsx scripts/validate-user-guide.ts",
+    "docs:dev": "cd docs-site && npm run dev",
+    "docs:build": "cd docs-site && npm run build",
+    "docs:preview": "cd docs-site && npm run preview"
+  },
   "dependencies": {
     "@assistant-ui/react": "^0.12.14",
     "framer-motion": "^12.34.3",
@@ -12,6 +19,7 @@
     "@tailwindcss/postcss": "^4.2.1",
     "@tailwindcss/typography": "^0.5.19",
     "@types/glob": "^8.1.0",
-    "glob": "^13.0.6"
+    "glob": "^13.0.6",
+    "tsx": "^4.21.0"
   }
 }
