@@ -17,7 +17,39 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    setUploading(true);
+    try {
+      for (const file of files) {
+        await kbApi.uploadDocument(knowledgeBase.kb_id, file);
+      }
+      await loadDocuments();
+      onUpdate();
+    } catch (error) {
+      alert("上传失败: " + (error instanceof Error ? error.message : "未知错误"));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -132,23 +164,30 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
           onChange={handleFileUpload}
           className="hidden"
         />
-        <button
+        <div
           onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-emerald-500 hover:bg-emerald-50 transition-colors disabled:opacity-50"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`w-full flex flex-col items-center justify-center gap-1 px-4 py-6 border-2 border-dashed rounded-lg transition-colors cursor-pointer ${
+            isDragging
+              ? "border-emerald-500 bg-emerald-50"
+              : "border-gray-300 hover:border-emerald-500 hover:bg-emerald-50"
+          } ${uploading ? "opacity-50 pointer-events-none" : ""}`}
         >
           {uploading ? (
             <>
-              <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
-              <span className="text-gray-600">上传中...</span>
+              <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+              <span className="text-sm text-gray-600">上传中...</span>
             </>
           ) : (
             <>
-              <Upload className="w-5 h-5 text-gray-400" />
-              <span className="text-gray-600">上传文档 (PDF/DOCX/TXT/MD)</span>
+              <Upload className="w-6 h-6 text-gray-400" />
+              <span className="text-sm text-gray-600">拖拽文件到此处或点击上传</span>
+              <span className="text-xs text-gray-400">支持 PDF/DOCX/TXT/MD</span>
             </>
           )}
-        </button>
+        </div>
       </div>
 
       {/* Search Test */}
