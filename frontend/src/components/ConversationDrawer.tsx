@@ -2,6 +2,39 @@
  * 会话抽屉组件
  * 从右侧滑出显示历史会话列表，支持搜索、新建、选择、删除等操作
  */
+/**
+ * @userGuide
+ * @title.en Conversation History
+ * @title.zh 对话历史
+ * @category core
+ * @description.en Access your conversation history in a slide-out drawer.
+ *   Search, rename, and manage past conversations with your agent.
+ * @description.zh 在滑出抽屉中访问对话历史。搜索、重命名和管理与智能体的历史对话。
+ *
+ * @steps.en
+ *   1. Click the history icon in the chat interface to open the drawer
+ *   2. Use the search box to find specific conversations
+ *   3. Click on a conversation to resume it
+ *   4. Hover over a conversation to rename or delete it
+ *   5. Click "New Conversation" to start fresh
+ * @steps.zh
+ *   1. 点击聊天界面的历史图标打开抽屉
+ *   2. 使用搜索框查找特定对话
+ *   3. 点击对话以恢复它
+ *   4. 悬停在对话上可重命名或删除
+ *   5. 点击"新对话"开始新会话
+ *
+ * @tips.en
+ *   - Conversations are grouped by agent
+ *   - Search works on both titles and message content
+ *   - Deleting a conversation is permanent
+ * @tips.zh
+ *   - 对话按智能体分组
+ *   - 搜索支持标题和消息内容
+ *   - 删除对话是不可恢复的
+ *
+ * @related AgentChat
+ */
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";

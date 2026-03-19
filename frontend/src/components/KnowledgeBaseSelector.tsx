@@ -1,3 +1,35 @@
+/**
+ * @userGuide
+ * @title.en Knowledge Base Selector
+ * @title.zh 知识库选择器
+ * @category core
+ * @description.en Select which knowledge bases your agent can search for relevant information.
+ *   Multiple knowledge bases can be connected to enhance agent responses with your data.
+ * @description.zh 选择智能体可以搜索的知识库，以获取相关信息。
+ *   可以连接多个知识库来增强智能体的回复能力。
+ *
+ * @steps.en
+ *   1. Click the dropdown to see available knowledge bases
+ *   2. Click on a knowledge base to select or deselect it
+ *   3. Selected knowledge bases show a checkmark
+ *   4. The button shows how many knowledge bases are selected
+ * @steps.zh
+ *   1. 点击下拉框查看可用的知识库
+ *   2. 点击知识库以选择或取消选择
+ *   3. 已选中的知识库显示对勾标记
+ *   4. 按钮显示已选择的知识库数量
+ *
+ * @tips.en
+ *   - Create knowledge bases in the Knowledge Base Management dialog
+ *   - Select multiple knowledge bases for broader search coverage
+ *   - Each agent can have different knowledge base configurations
+ * @tips.zh
+ *   - 在知识库管理对话框中创建知识库
+ *   - 选择多个知识库以获得更广泛的搜索覆盖
+ *   - 每个智能体可以有不同的知识库配置
+ *
+ * @related KnowledgeBaseDialog, DocumentUploader
+ */
 "use client";
 
 import { useState, useEffect } from "react";

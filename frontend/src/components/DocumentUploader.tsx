@@ -1,3 +1,39 @@
+/**
+ * @userGuide
+ * @title.en Document Uploader
+ * @title.zh 文档上传器
+ * @category core
+ * @description.en Upload documents to a knowledge base for indexing and search.
+ *   Drag and drop or click to select files for batch upload.
+ * @description.zh 向知识库上传文档以进行索引和搜索。
+ *   拖放或点击选择文件进行批量上传。
+ *
+ * @steps.en
+ *   1. Open the document uploader from the knowledge base detail page
+ *   2. Drag and drop files onto the upload area, or click to browse
+ *   3. Review the file list before uploading
+ *   4. Click "Upload" to start uploading all files
+ *   5. Wait for all files to complete processing
+ * @steps.zh
+ *   1. 从知识库详情页打开文档上传器
+ *   2. 将文件拖放到上传区域，或点击浏览
+ *   3. 上传前查看文件列表
+ *   4. 点击"上传"开始上传所有文件
+ *   5. 等待所有文件完成处理
+ *
+ * @tips.en
+ *   - Supported formats: PDF, DOCX, TXT, MD
+ *   - Maximum file size: 10MB per file
+ *   - Files are processed one at a time
+ *   - Upload status shows progress for each file
+ * @tips.zh
+ *   - 支持的格式：PDF、DOCX、TXT、MD
+ *   - 最大文件大小：每个文件10MB
+ *   - 文件逐个处理
+ *   - 上传状态显示每个文件的进度
+ *
+ * @related KnowledgeBaseDialog, KnowledgeBaseSelector
+ */
 "use client";
 
 import { useState, useRef, useCallback } from "react";

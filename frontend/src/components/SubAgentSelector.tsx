@@ -1,3 +1,37 @@
+/**
+ * @userGuide
+ * @title.en Sub-Agent Selector
+ * @title.zh 子智能体选择器
+ * @category core
+ * @description.en Configure which sub-agents this agent can call for task delegation.
+ *   Enable multi-role collaboration by allowing agents to delegate specialized tasks.
+ * @description.zh 配置此智能体可以调用的子智能体，实现任务委派。
+ *   通过允许智能体委派专业任务来实现多角色协作。
+ *
+ * @steps.en
+ *   1. Click the Sub-Agent Configuration section to expand it
+ *   2. Use the search box to find agents by name or persona
+ *   3. Click on an agent card to add it as a sub-agent
+ *   4. Remove sub-agents by clicking the X button on selected items
+ *   5. Save your agent configuration to apply changes
+ * @steps.zh
+ *   1. 点击"子 Agent 配置"区域展开
+ *   2. 使用搜索框按名称或人设查找智能体
+ *   3. 点击智能体卡片将其添加为子智能体
+ *   4. 点击已选项上的 X 按钮移除子智能体
+ *   5. 保存智能体配置以应用更改
+ *
+ * @tips.en
+ *   - Sub-agents cannot create circular dependencies
+ *   - Each sub-agent can have its own tools and knowledge bases
+ *   - Use sub-agents for specialized tasks like document processing
+ * @tips.zh
+ *   - 子智能体不能创建循环依赖
+ *   - 每个子智能体可以有自己的工具和知识库
+ *   - 使用子智能体处理专业任务，如文档处理
+ *
+ * @related AgentChat, KnowledgeBaseSelector
+ */
 "use client";
 
 import { useState, useMemo } from "react";

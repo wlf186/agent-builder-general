@@ -1,3 +1,35 @@
+/**
+ * @userGuide
+ * @title.en Knowledge Base Management
+ * @title.zh 知识库管理
+ * @category core
+ * @description.en Create and manage knowledge bases for your agents.
+ *   Knowledge bases store documents that agents can search for relevant information.
+ * @description.zh 创建和管理智能体的知识库。
+ *   知识库存储智能体可以搜索的文档，以获取相关信息。
+ *
+ * @steps.en
+ *   1. Click "New Knowledge Base" to create a new knowledge base
+ *   2. Enter a name and optional description
+ *   3. Click "Save" to create the knowledge base
+ *   4. Upload documents to the knowledge base for indexing
+ * @steps.zh
+ *   1. 点击"新建知识库"创建新的知识库
+ *   2. 输入名称和可选描述
+ *   3. 点击"保存"创建知识库
+ *   4. 向知识库上传文档以进行索引
+ *
+ * @tips.en
+ *   - Use descriptive names to identify knowledge bases easily
+ *   - Group related documents in the same knowledge base
+ *   - Supported formats: PDF, DOCX, TXT, MD
+ * @tips.zh
+ *   - 使用描述性名称以便轻松识别知识库
+ *   - 将相关文档分组到同一知识库
+ *   - 支持的格式：PDF、DOCX、TXT、MD
+ *
+ * @related KnowledgeBaseSelector, DocumentUploader
+ */
 "use client";
 
 import { useState, useEffect } from "react";

@@ -25,6 +25,39 @@
  * - frontend/src/app/stream/agents/[name]/chat/route.ts - 流式代理
  * ============================================================================
  */
+/**
+ * @userGuide
+ * @title.en Chat Interface
+ * @title.zh 聊天界面
+ * @category core
+ * @description.en The main conversation area where you interact with your AI agent.
+ *   Type messages, attach files, and see real-time responses with typewriter effect.
+ * @description.zh 与AI智能体对话的主要区域。输入消息、附加文件，并观看打字机效果的实时响应。
+ *
+ * @steps.en
+ *   1. Type your message in the text input at the bottom
+ *   2. Optionally attach files using the paperclip icon (max 3 files, 100MB each)
+ *   3. Press Enter or click Send to submit your message
+ *   4. Watch the AI respond with real-time streaming
+ *   5. View thinking process and tool calls in expandable sections
+ * @steps.zh
+ *   1. 在底部的文本输入框中输入消息
+ *   2. 可选：使用回形针图标附加文件（最多3个文件，每个100MB）
+ *   3. 按回车键或点击发送按钮提交消息
+ *   4. 观看AI的实时流式响应
+ *   5. 在可展开区域查看思考过程和工具调用
+ *
+ * @tips.en
+ *   - Use Shift+Enter for multi-line messages
+ *   - Click on tool calls to see what the agent is doing
+ *   - Performance metrics show response time and token usage
+ * @tips.zh
+ *   - 使用 Shift+Enter 输入多行消息
+ *   - 点击工具调用查看智能体的操作
+ *   - 性能指标显示响应时间和Token使用量
+ *
+ * @related KnowledgeBaseSelector, FileUploader
+ */
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
