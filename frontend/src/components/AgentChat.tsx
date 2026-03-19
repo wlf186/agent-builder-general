@@ -30,7 +30,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { flushSync } from 'react-dom';  // 【关键】flushSync 用于强制同步渲染
 import { useLocale } from '@/lib/LocaleContext';
-import { ChevronDown, ChevronRight, Wrench, Lightbulb, Loader2, Clock, Zap, Hash, Paperclip, FileText, FileSpreadsheet, Image, File, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Wrench, Lightbulb, Loader2, Clock, Zap, Hash, Paperclip, FileText, FileSpreadsheet, Image, File, X, Database } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PendingFile, FileAttachment, DEFAULT_FILE_CONFIG, formatFileSize, FileUploadConfig, FileContext, UploadedFile, SubAgentCallRecord } from '@/types';
@@ -103,6 +103,29 @@ interface ChatMessage {
   loadingSkill?: string;
   // 【AC130 新增】子 Agent 调用记录
   subAgentCalls?: SubAgentCallRecord[];
+  // 【AC130-202603170949】RAG 知识库检索状态
+  ragRetrievals?: RAGRetrieval[];
+  // 【Phase3-Task3.3】RAG 来源引用
+  ragSources?: RAGSource[];
+}
+
+/**
+ * RAG 检索记录
+ */
+interface RAGRetrieval {
+  query: string;
+  status: 'retrieving' | 'completed' | 'failed';
+  results?: string;
+  call_id?: string;
+}
+
+/**
+ * RAG 来源引用
+ */
+interface RAGSource {
+  filename: string;
+  chunk_index: number;
+  score: number;
 }
 
 interface PerformanceMetrics {
@@ -156,6 +179,10 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   const streamingSkillStatesRef = useRef<SkillExecutionState[]>([]);
   // 【AC130 新增】子 Agent 调用记录
   const streamingSubAgentCallsRef = useRef<SubAgentCallRecord[]>([]);
+  // 【AC130-202603170949】RAG 知识库检索记录
+  const streamingRagRetrievalsRef = useRef<RAGRetrieval[]>([]);
+  // 【Phase3-Task3.3】RAG 来源引用
+  const streamingRagSourcesRef = useRef<RAGSource[]>([]);
 
   // 【修复】用于在渲染完成后安全地调用 onConversationChange
   // 避免 "Cannot update a component while rendering a different component" 错误
@@ -172,6 +199,10 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   // 【修复-2603141800】使用 ref 跟踪运行状态，避免竞态条件
   // isRunning state 有异步延迟，使用 ref 可以同步检查和设置
   const isRunningRef = useRef(false);
+
+  // 【修复-20260319】跟踪本地消息更新，防止 initialMessages useEffect 覆盖本地更新
+  // 当本地消息更新时，设置此标志，防止 initialMessages useEffect 在短时间内覆盖
+  const localMessageUpdateRef = useRef(false);
 
   // 【修复-2603141800】使用 ref 存储最新的 messages，避免 handleSend 闭包问题
   const messagesRef = useRef<ChatMessage[]>([]);
@@ -275,6 +306,12 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   useEffect(() => {
     // 只有当 initialMessages 不是 undefined 时才更新（允许空数组）
     if (initialMessages !== undefined) {
+      // 【修复-20260319】如果本地刚更新了消息，跳过 initialMessages 的更新
+      // 防止循环依赖：handleSend -> onConversationChange -> initialMessages -> 覆盖 messages
+      if (localMessageUpdateRef.current) {
+        localMessageUpdateRef.current = false; // 重置标志
+        return;
+      }
       setMessages(initialMessages);
       // 【修复-2603141800】同步更新 messagesRef
       messagesRef.current = initialMessages;
@@ -283,6 +320,7 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
 
   // 【修复】在渲染完成后安全地调用 onConversationChange
   // 这避免了在 setMessages 回调中直接调用导致的渲染期间 setState 错误
+  // 【修复-20260317】使用 setTimeout 确保 onConversationChange 不阻塞 UI 更新
   useEffect(() => {
     const pendingUpdate = pendingConversationUpdateRef.current;
     // 【修复-2603131100】检查是否已处理过该会话，防止重复调用
@@ -297,9 +335,16 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
       const updateKey = `${convId}-${msgCount}`;
       if (lastProcessedConversationRef.current !== updateKey) {
         lastProcessedConversationRef.current = updateKey;
-        onConversationChange(pendingUpdate.conversationId, pendingUpdate.messages);
+        pendingConversationUpdateRef.current = null; // 清除待处理的更新
+
+        // 【修复-20260317】使用 setTimeout 延迟调用，确保不阻塞 UI 渲染
+        // 这样 setIsRunning(false) 的效果可以立即反映到 UI
+        setTimeout(() => {
+          onConversationChange(pendingUpdate.conversationId, pendingUpdate.messages);
+        }, 0);
+      } else {
+        pendingConversationUpdateRef.current = null; // 清除待处理的更新
       }
-      pendingConversationUpdateRef.current = null; // 清除待处理的更新
     }
   }, [messages, onConversationChange]);
 
@@ -526,13 +571,19 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
       toolCalls: [],
       isThinkingExpanded: false,
       loadedSkills: [],
-      skillStates: []
+      skillStates: [],
+      ragRetrievals: []  // 【AC130-202603170949】初始化 RAG 检索记录
     };
     const newMessages = [...messagesRef.current, userMsg, assistantMsg];
 
     // 【修复-2603141800】同时更新 state 和 ref
     messagesRef.current = newMessages;
-    setMessages(newMessages);
+    // 【修复-20260319】标记本地消息已更新，防止 initialMessages useEffect 覆盖
+    localMessageUpdateRef.current = true;
+    // 【修复-20260319】使用 flushSync 强制立即渲染消息，避免在 fetch 等待期间 UI 不更新
+    flushSync(() => {
+      setMessages(newMessages);
+    });
     setIsRunning(true);
     streamingContentRef.current = "";
     streamingThinkingRef.current = "";
@@ -540,6 +591,7 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
     streamingLoadedSkillsRef.current = [];
     streamingSkillStatesRef.current = [];  // T017: 重置 Skill 执行状态
     streamingSubAgentCallsRef.current = [];  // 【AC130 新增】重置子 Agent 调用记录
+    streamingRagRetrievalsRef.current = [];  // 【AC130-202603170949】重置 RAG 检索记录
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
@@ -723,6 +775,28 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                   }
                 }
 
+                // 【AC130-202603170949】检测 rag_retrieve 工具结果，更新 RAG 检索状态
+                if (toolName === 'rag_retrieve') {
+                  // 从工具调用参数中提取查询内容
+                  const relatedToolCall = streamingToolCallsRef.current.find(tc =>
+                    tc.name === 'rag_retrieve' &&
+                    (toolCallId ? tc.call_id === toolCallId : !tc.result)
+                  );
+                  const query = relatedToolCall?.args?.query || '';
+
+                  // 更新 RAG 检索记录状态
+                  streamingRagRetrievalsRef.current = streamingRagRetrievalsRef.current.map(r => {
+                    if (r.query === query || (toolCallId && r.call_id === toolCallId)) {
+                      return {
+                        ...r,
+                        status: toolResult?.includes('未找到') || toolResult?.includes('不在知识库') ? 'failed' : 'completed',
+                        results: toolResult
+                      };
+                    }
+                    return r;
+                  });
+                }
+
                 streamingToolCallsRef.current = streamingToolCallsRef.current.map(tc => {
                   // 优先使用 call_id 匹配，确保同名工具的多次调用能正确匹配
                   if (toolCallId && tc.call_id === toolCallId) {
@@ -779,7 +853,10 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                                 }
                                 return msg.skillStates;
                               })()
-                            : msg.skillStates
+                            : msg.skillStates,
+                          // 【AC130-202603170949 修复】同步 RAG 检索状态到消息对象
+                          // 修复问题：rag_retrieve 工具结果返回时，streamingRagRetrievalsRef.current 被更新但消息对象未同步
+                          ragRetrievals: [...streamingRagRetrievalsRef.current]
                         }
                       : msg
                   )
@@ -963,6 +1040,48 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                       : msg
                   )
                 );
+              } else if (data.type === 'rag_retrieve') {
+                // 【AC130-202603170949】RAG 知识库检索开始
+                const query = data.query;
+                const callId = data.call_id || `rag-${Date.now()}`;
+
+                const newRetrieval: RAGRetrieval = {
+                  query,
+                  status: 'retrieving',
+                  call_id: callId
+                };
+
+                streamingRagRetrievalsRef.current = [...streamingRagRetrievalsRef.current, newRetrieval];
+
+                // 更新 thinking 显示检索提示
+                streamingThinkingRef.current = locale === "zh"
+                  ? `正在检索知识库: "${query}"...`
+                  : `Retrieving from knowledge base: "${query}"...`;
+
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMsgId
+                      ? {
+                          ...msg,
+                          thinking: streamingThinkingRef.current,
+                          ragRetrievals: [...streamingRagRetrievalsRef.current]
+                        }
+                      : msg
+                  )
+                );
+              } else if (data.type === 'rag_sources') {
+                // 【Phase3-Task3.3】RAG 来源引用 - 存储来源用于引用显示
+                const sources = data.sources as RAGSource[];
+                if (sources && sources.length > 0) {
+                  streamingRagSourcesRef.current = [...streamingRagSourcesRef.current, ...sources];
+                  setMessages((prev) =>
+                    prev.map((msg) =>
+                      msg.id === assistantMsgId
+                        ? { ...msg, ragSources: [...streamingRagSourcesRef.current] }
+                        : msg
+                    )
+                  );
+                }
               } else if (data.content) {
                 // 兼容旧格式
                 streamingContentRef.current += data.content;
@@ -1026,8 +1145,12 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
       }
     } finally {
       // 【修复-2603141800】同步重置运行状态 ref
+      // 【修复-20260317】使用 flushSync 强制同步更新 isRunning 状态
+      // 避免批处理导致输入框延迟可用
       isRunningRef.current = false;
-      setIsRunning(false);
+      flushSync(() => {
+        setIsRunning(false);
+      });
       abortControllerRef.current = null;
 
       // 【修复-2603141800】保存会话消息到后端
@@ -1130,7 +1253,7 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
 
   // 渲染思考过程区域
   const renderThinkingSection = (msg: ChatMessage) => {
-    const hasThinking = msg.thinking || (msg.toolCalls && msg.toolCalls.length > 0) || (msg.loadedSkills && msg.loadedSkills.length > 0) || (msg.skillStates && msg.skillStates.length > 0);
+    const hasThinking = msg.thinking || (msg.toolCalls && msg.toolCalls.length > 0) || (msg.loadedSkills && msg.loadedSkills.length > 0) || (msg.skillStates && msg.skillStates.length > 0) || (msg.ragRetrievals && msg.ragRetrievals.length > 0);
     if (!hasThinking) return null;
 
     // 如果正在运行且有思考内容或工具调用，自动展开
@@ -1281,6 +1404,33 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
             {msg.subAgentCalls && msg.subAgentCalls.length > 0 && (
               <SubAgentCallCard calls={msg.subAgentCalls} locale={locale} />
             )}
+
+            {/* 【AC130-202603170949】RAG 知识库检索状态区域 */}
+            {msg.ragRetrievals && msg.ragRetrievals.length > 0 && (
+              <div className="border-l-2 border-emerald-500/50 pl-2 py-1">
+                <div className="flex items-center gap-1 text-xs mb-1">
+                  <Database className="w-3 h-3 text-emerald-400" />
+                  <span className="text-emerald-400 font-medium">
+                    {locale === "zh" ? "知识库检索" : "Knowledge Base"}
+                  </span>
+                </div>
+                {msg.ragRetrievals.map((rag, idx) => (
+                  <div key={idx} className="space-y-1">
+                    <div className="flex items-center gap-2 text-xs">
+                      {rag.status === 'retrieving' && <Loader2 className="w-3 h-3 text-emerald-400 animate-spin" />}
+                      {rag.status === 'completed' && <span className="text-emerald-400">✓</span>}
+                      {rag.status === 'failed' && <span className="text-yellow-400">⚠</span>}
+                      <span className="text-gray-300">"{rag.query}"</span>
+                    </div>
+                    {rag.results && rag.status === 'completed' && (
+                      <div className="text-xs text-gray-400 mt-1 bg-black/20 px-2 py-1 rounded max-h-24 overflow-auto">
+                        {locale === "zh" ? "来源: " : "Source: "}{rag.results}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1345,6 +1495,27 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                       </span>
                     ) : '')}
                   </div>
+                  {/* 【Phase3-Task3.3】RAG 来源引用 */}
+                  {msg.ragSources && msg.ragSources.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-gray-700 px-4 pb-2.5">
+                      <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
+                        <Database className="w-3 h-3" />
+                        <span>{locale === "zh" ? "来源:" : "Sources:"}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {msg.ragSources.map((source, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-900/30 text-emerald-400 text-xs rounded"
+                          >
+                            <FileText className="w-3 h-3" />
+                            {source.filename}
+                            <span className="text-emerald-600">({source.score.toFixed(2)})</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
