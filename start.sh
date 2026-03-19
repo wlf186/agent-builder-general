@@ -76,6 +76,101 @@ start_backend() {
     fi
 }
 
+# 启动 Langfuse 可观测性服务
+start_langfuse() {
+    log_info "启动 Langfuse 可观测性服务..."
+
+    LANGFUSE_PORT=3000
+
+    # 检查 docker-compose 是否可用
+    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+        log_warn "Docker Compose 不可用，跳过 Langfuse 启动"
+        log_warn "如需启用可观测性，请先安装 Docker Compose"
+        return 0
+    fi
+
+    # 检查端口
+    if check_port $LANGFUSE_PORT; then
+        log_warn "Langfuse 端口 $LANGFUSE_PORT 已被占用"
+        return 0
+    fi
+
+    # 检查 docker-compose.langfuse.yml 是否存在
+    if [ ! -f "docker-compose.langfuse.yml" ]; then
+        log_warn "docker-compose.langfuse.yml 不存在，跳过 Langfuse 启动"
+        return 0
+    fi
+
+    # 启动 Langfuse 服务
+    if docker compose version &> /dev/null; then
+        docker compose -f docker-compose.langfuse.yml up -d
+    else
+        docker-compose -f docker-compose.langfuse.yml up -d
+    fi
+
+    log_info "Langfuse 服务启动中..."
+    sleep 5  # 等待服务初始化
+
+    # 检查服务是否启动
+    if check_port $LANGFUSE_PORT; then
+        log_info "Langfuse 启动成功 (http://localhost:$LANGFUSE_PORT)"
+    else
+        log_warn "Langfuse 启动可能需要更长时间，请稍后访问 http://localhost:$LANGFUSE_PORT"
+    fi
+}
+
+# 启动文档站点 (VitePress)
+start_docs_site() {
+    log_info "启动文档站点..."
+
+    DOCS_SITE_PORT=4173
+
+    # 检查端口
+    if check_port $DOCS_SITE_PORT; then
+        log_warn "文档站点端口 $DOCS_SITE_PORT 已被占用"
+        return 0
+    fi
+
+    # 检查 docs-site 目录是否存在
+    if [ ! -d "docs-site" ]; then
+        log_warn "docs-site 目录不存在，跳过文档站点启动"
+        return 0
+    fi
+
+    cd docs-site
+
+    # 检查依赖
+    if [ ! -d "node_modules" ]; then
+        if [ "$1" == "--skip-deps" ]; then
+            log_warn "docs-site node_modules 不存在且指定了 --skip-deps，跳过文档站点启动"
+            cd ..
+            return 0
+        fi
+        log_info "安装文档站点依赖..."
+        npm install --silent
+    fi
+
+    # 构建检查
+    if [ ! -d ".vitepress/dist" ]; then
+        log_info "构建文档站点..."
+        npm run build
+    fi
+
+    # 启动文档站点
+    nohup npm run preview -- --port $DOCS_SITE_PORT > ../docs-site.log 2>&1 &
+    echo $! > ../docs-site.pid
+    log_info "文档站点 PID: $(cat ../docs-site.pid)"
+
+    cd ..
+
+    # 等待启动
+    if wait_for_service $DOCS_SITE_PORT "文档站点"; then
+        log_info "文档站点启动成功 (http://localhost:$DOCS_SITE_PORT)"
+    else
+        log_warn "文档站点启动超时，请检查 docs-site.log"
+    fi
+}
+
 # 启动前端
 start_frontend() {
     log_info "启动前端服务..."
@@ -123,7 +218,11 @@ main() {
     echo "========================================"
     echo ""
 
+    start_langfuse
+    echo ""
     start_backend
+    echo ""
+    start_docs_site $1
     echo ""
     start_frontend $1
 
@@ -133,9 +232,11 @@ main() {
     echo ""
     echo "  前端: http://localhost:$FRONTEND_PORT"
     echo "  后端: http://localhost:$BACKEND_PORT"
+    echo "  文档站点: http://localhost:4173"
+    echo "  Langfuse (可观测性): http://localhost:3000"
     echo ""
     echo "  停止服务: ./stop.sh"
-    echo "  查看日志: tail -f backend.log | frontend.log"
+    echo "  查看日志: tail -f backend.log | frontend.log | docs-site.log"
     echo "========================================"
 }
 
