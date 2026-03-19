@@ -21,6 +21,7 @@ from .skill_loader import SkillLoader
 from .skill_tool import SkillTool
 from .model_service_registry import ModelServiceRegistry
 from .cycle_detector import CycleDetector
+from .langfuse_tracer import get_langfuse_tracer, is_langfuse_enabled
 
 if TYPE_CHECKING:
     from .execution_engine import ExecutionEngine
@@ -633,10 +634,7 @@ Returns:
     def _init_retrievers(self):
         """初始化知识库检索器"""
         if not self.kb_manager or not self.config.knowledge_bases:
-            print(f"[DEBUG] _init_retrievers: kb_manager={self.kb_manager}, knowledge_bases={self.config.knowledge_bases}")
             return
-
-        print(f"[DEBUG] _init_retrievers: embedder={self.embedder}, kb_manager={type(self.kb_manager)}")
 
         try:
             from src.retriever import Retriever
@@ -644,10 +642,7 @@ Returns:
             for kb_id in self.config.knowledge_bases:
                 if kb_id in self.kb_manager._configs:
                     collection = self.kb_manager._get_collection(kb_id)
-                    print(f"[DEBUG] 创建 Retriever: kb_id={kb_id}, collection={collection}, embedder={self.embedder}")
                     self._retrievers[kb_id] = Retriever(collection, self.embedder)
-
-            print(f"[DEBUG] 初始化了 {len(self._retrievers)} 个知识库检索器")
 
         except Exception as e:
             print(f"[ERROR] 初始化检索器失败: {e}")
@@ -667,10 +662,12 @@ Returns:
             self._last_retrieval_sources = []
             return ""
 
+        # 使用配置或默认值
         config = self.config.retrieval_config
         if not config:
-            self._last_retrieval_sources = []
-            return ""
+            # 【BUG FIX】当 retrieval_config 未配置时，使用默认值而不是跳过检索
+            from src.models import RetrievalConfig
+            config = RetrievalConfig()  # 使用默认值: top_k=3, score_threshold=0.6
 
         all_results = []
 
@@ -1654,7 +1651,7 @@ BEST: 编号"""
     # - frontend/src/components/AgentChat.tsx - 前端渲染
     # - frontend/src/app/stream/agents/[name]/chat/route.ts - 流式代理
     # ============================================================================
-    async def stream(self, user_input: str, history: List[Dict] = None, file_context: str = "", trace_id: str = None):
+    async def stream(self, user_input: str, history: List[Dict] = None, file_context: str = "", trace_id: str = None, conversation_id: str = None):
         """流式运行Agent - 支持返回 thinking、多轮工具调用和最终回答
 
         【流式输出核心方法 - 谨慎修改】
@@ -1674,9 +1671,25 @@ BEST: 编号"""
             history: 对话历史
             file_context: 文件上下文信息（包含用户上传文件的元数据）
             trace_id: 可追溯ID，用于关联日志和调试
+            conversation_id: 会话ID，用于Langfuse追踪
         """
         # 刷新skill_tool的enabled_skills（用于配置热更新）
         self._refresh_skill_tool_if_needed()
+
+        # ====================================================================
+        # 【Langfuse 追踪】创建 Trace
+        # ====================================================================
+        langfuse_tracer = get_langfuse_tracer()
+        langfuse_trace_id = trace_id or f"trace-{self.config.name}-{int(__import__('time').time()*1000)}"
+        if is_langfuse_enabled():
+            langfuse_tracer.create_trace(
+                trace_id=langfuse_trace_id,
+                name=f"agent:{self.config.name}",
+                user_id=self.config.name,
+                session_id=conversation_id,
+                input={"query": user_input},
+                metadata={"agent": self.config.name}
+            )
 
         # 构建系统提示
         system_prompt = self._get_system_prompt()
@@ -1920,6 +1933,18 @@ BEST: 编号"""
             # 选择使用绑定工具的 LLM 还是原始 LLM
             llm_to_use = self.llm_with_tools if self.llm_with_tools else self.llm
 
+            # ====================================================================
+            # 【Langfuse 追踪】创建 LLM Span
+            # ====================================================================
+            llm_span_id = None
+            if is_langfuse_enabled():
+                llm_span_id = langfuse_tracer.create_span(
+                    trace_id=langfuse_trace_id,
+                    span_name=f"llm.{self.config.llm_provider.value if self.config.llm_provider else 'unknown'}",
+                    span_type="LLM",
+                    input={"messages_count": len(messages), "iteration": iteration}
+                )
+
             # ============================================================================
             # 【AC130-202603150000】LLM 流式输出异常处理
             # ============================================================================
@@ -1971,6 +1996,14 @@ BEST: 编号"""
                 # LLM 调用失败，发送错误事件到前端
                 error_msg = f"LLM 调用失败: {str(e)}"
                 print(f"[ERROR] LLM stream error: {error_msg}")
+                # 【Langfuse 追踪】结束 LLM Span (错误)
+                if llm_span_id and is_langfuse_enabled():
+                    langfuse_tracer.end_span(
+                        trace_id=langfuse_trace_id,
+                        span_id=llm_span_id,
+                        output={"error": error_msg},
+                        status="error"
+                    )
                 yield {
                     "type": "error",
                     "content": error_msg,
@@ -1978,6 +2011,14 @@ BEST: 编号"""
                 }
                 # 重新抛出异常，让后端 logger 记录
                 raise
+
+            # 【Langfuse 追踪】结束 LLM Span (成功)
+            if llm_span_id and is_langfuse_enabled():
+                langfuse_tracer.end_span(
+                    trace_id=langfuse_trace_id,
+                    span_id=llm_span_id,
+                    output={"response_length": len(response_content)}
+                )
 
             # 如果在缓冲模式，检查是否有工具调用
             if buffering and not started_streaming:
@@ -2127,8 +2168,26 @@ BEST: 编号"""
                                 "call_id": call_id
                             }
 
+                        # 【Langfuse 追踪】创建工具 Span
+                        tool_span_id = None
+                        if is_langfuse_enabled():
+                            tool_span_id = langfuse_tracer.create_span(
+                                trace_id=langfuse_trace_id,
+                                span_name=f"tool.{tool_name}",
+                                span_type="TOOL",
+                                input={"tool": tool_name, "args": tool_args}
+                            )
+
                         # 执行工具
                         result = await self._execute_tool(tool_name, tool_args)
+
+                        # 【Langfuse 追踪】结束工具 Span
+                        if tool_span_id and is_langfuse_enabled():
+                            langfuse_tracer.end_span(
+                                trace_id=langfuse_trace_id,
+                                span_id=tool_span_id,
+                                output={"result": result[:500] if result else None}
+                            )
 
                         # 如果是 skill 工具，发送 skill_loaded 事件
                         if is_skill_tool:
@@ -2307,6 +2366,15 @@ BEST: 编号"""
                 for char in default_msg:
                     full_response += char
                     yield {"type": "content", "content": char}
+
+        # ====================================================================
+        # 【Langfuse 追踪】结束 Trace
+        # ====================================================================
+        if is_langfuse_enabled():
+            langfuse_tracer.end_trace(
+                trace_id=langfuse_trace_id,
+                output={"response": full_response, "tool_calls": all_tool_calls_info}
+            )
 
     def _convert_native_tool_calls(self, native_tool_calls) -> List[Dict]:
         """
