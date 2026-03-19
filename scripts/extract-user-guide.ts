@@ -24,15 +24,23 @@ function parseUserGuide(source: string, componentName: string): UserGuideDoc | n
 
   const block = match[0];
 
-  // Extract tag values
-  const getTag = (tag: string): string => {
+  // Extract tag values (preserve newlines for list-type tags)
+  const getTag = (tag: string, preserveNewlines: boolean = false): string => {
     const regex = new RegExp(`@${tag}\\s+(.+?)(?=@\\w+|\\*\\/)`, 's');
     const m = block.match(regex);
-    return m ? m[1].replace(/\s*\*\s*/g, ' ').trim() : '';
+    if (!m) return '';
+    let value = m[1];
+    if (preserveNewlines) {
+      // Remove * prefixes but keep newlines
+      value = value.replace(/^[ \t]*\*[ \t]*/gm, '').trim();
+    } else {
+      value = value.replace(/\s*\*\s*/g, ' ').trim();
+    }
+    return value;
   };
 
   const getList = (tag: string): string[] => {
-    const value = getTag(tag);
+    const value = getTag(tag, true); // Preserve newlines for list parsing
     if (!value) return [];
     return value
       .split(/\n/)
