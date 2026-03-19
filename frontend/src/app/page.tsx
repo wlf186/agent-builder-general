@@ -32,6 +32,7 @@ import {
   AlertTriangle,
   ExternalLink,
   Database,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -214,7 +215,8 @@ export default function Home() {
   const [kbDetailOpen, setKbDetailOpen] = useState(false);
   const [kbDialogOpen, setKbDialogOpen] = useState(false);
   const [editingKb, setEditingKb] = useState<KnowledgeBase | null>(null);
-  const [configSubAgentsExpanded, setConfigSubAgentsExpanded] = useState(false);  // 【AC130 新增】
+  const [configSubAgentsExpanded, setConfigSubAgentsExpanded] = useState(false);
+  const [sidebarResourcesExpanded, setSidebarResourcesExpanded] = useState(true);  // 【AC130 新增】
 
   // 巻加历史会话相关状态
   const [conversationDrawerOpen, setConversationDrawerOpen] = useState(false);
@@ -1109,6 +1111,49 @@ export default function Home() {
                     );
                   })
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* Resources Section - External Links */}
+          <div className="p-5 border-t border-white/[0.05]">
+            <div className="flex items-center justify-between mb-3">
+              <button
+                onClick={() => setSidebarResourcesExpanded(!sidebarResourcesExpanded)}
+                className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors"
+              >
+                {sidebarResourcesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {locale === "zh" ? "资源" : "Resources"}
+              </button>
+            </div>
+            {sidebarResourcesExpanded && (
+              <div className="space-y-1.5">
+                <a
+                  href="/docs"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <BookOpen size={12} className="text-blue-400" />
+                    <span className="text-sm text-gray-300">
+                      {locale === "zh" ? "用户手册" : "User Manual"}
+                    </span>
+                  </div>
+                  <ExternalLink size={12} className="text-gray-500 group-hover:text-gray-400" />
+                </a>
+                <a
+                  href="/langfuse"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Activity size={12} className="text-orange-400" />
+                    <span className="text-sm text-gray-300">Langfuse</span>
+                  </div>
+                  <ExternalLink size={12} className="text-gray-500 group-hover:text-gray-400" />
+                </a>
               </div>
             )}
           </div>
