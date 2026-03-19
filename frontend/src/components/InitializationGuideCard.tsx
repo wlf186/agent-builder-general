@@ -3,6 +3,31 @@
  *
  * 在智能体环境初始化期间显示，提供进度反馈和可操作项提示。
  */
+
+/**
+ * @userGuide
+ * @title.en Initialization Guide Card
+ * @title.zh 初始化引导卡片
+ * @category core
+ * @description.en Displays during agent environment initialization with progress bar, estimated time, and actionable configuration items.
+ * @description.zh 在智能体环境初始化期间显示，提供进度条、预估时间和可操作的配置项。
+ * @steps.en
+ *   1. Watch the progress bar as the environment initializes
+ *   2. While waiting, configure available options (persona, MCP services)
+ *   3. Wait for initialization to complete before starting chat
+ * @steps.zh
+ *   1. 观察进度条了解初始化进度
+ *   2. 等待期间可配置可用选项（人设、MCP 服务）
+ *   3. 等待初始化完成后开始对话
+ * @tips.en
+ *   - Configuration items become available progressively during initialization
+ *   - You can set up persona and MCP services while waiting
+ * @tips.zh
+ *   - 配置项在初始化过程中逐步变为可用
+ *   - 可以在等待期间设置人设和 MCP 服务
+ * @related EnvironmentBanner
+ */
+
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, Settings, User, Plug, Play } from "lucide-react";

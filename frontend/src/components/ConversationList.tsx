@@ -4,6 +4,32 @@
  */
 "use client";
 
+/**
+ * @userGuide
+ * @title.en Conversation List
+ * @title.zh 会话列表
+ * @category core
+ * @description.en Displays all conversations grouped by time (Today, Yesterday, Last 7 Days, Earlier). Supports search filtering and conversation management.
+ * @description.zh 按时间分组显示所有会话（今天、昨天、7天内、更早），支持搜索过滤和会话管理。
+ * @steps.en
+ *   1. View conversations grouped by time period
+ *   2. Use the search box to filter conversations by title or content
+ *   3. Click a conversation to switch to it
+ *   4. Hover over a conversation to rename or delete it
+ * @steps.zh
+ *   1. 查看按时间段分组的会话列表
+ *   2. 使用搜索框按标题或内容过滤会话
+ *   3. 点击会话切换到该对话
+ *   4. 悬停在会话上可重命名或删除
+ * @tips.en
+ *   - Conversations are automatically grouped by their last update time
+ *   - Search matches both conversation titles and message previews
+ * @tips.zh
+ *   - 会话按最后更新时间自动分组
+ *   - 搜索同时匹配会话标题和消息预览
+ * @related ConversationCard
+ */
+
 import { useMemo } from "react";
 import { useLocale } from "@/lib/LocaleContext";
 import { ConversationCard, Conversation } from "./ConversationCard";

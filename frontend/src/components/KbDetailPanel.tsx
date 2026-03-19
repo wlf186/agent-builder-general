@@ -1,5 +1,31 @@
 "use client";
 
+/**
+ * @userGuide
+ * @title.en Knowledge Base Detail Panel
+ * @title.zh 知识库详情面板
+ * @category core
+ * @description.en Manage knowledge base documents with drag-and-drop upload, document list, and semantic search testing.
+ * @description.zh 管理知识库文档，支持拖拽上传、文档列表查看和语义检索测试。
+ * @steps.en
+ *   1. Drag and drop files or click to upload documents (PDF, DOCX, TXT, MD)
+ *   2. View document list with status (Ready, Processing, Failed)
+ *   3. Test semantic search by entering a query
+ *   4. Delete documents by clicking the trash icon
+ * @steps.zh
+ *   1. 拖拽文件或点击上传文档（支持 PDF、DOCX、TXT、MD）
+ *   2. 查看文档列表及状态（就绪、处理中、失败）
+ *   3. 输入查询词测试语义检索效果
+ *   4. 点击删除图标移除文档
+ * @tips.en
+ *   - Documents are automatically chunked and indexed for semantic search
+ *   - Use the search test to verify document quality before using in chat
+ * @tips.zh
+ *   - 文档会自动分块并建立向量索引
+ *   - 使用检索测试功能验证文档质量，确保聊天时能正确召回
+ * @related KnowledgeBaseDialog
+ */
+
 import { useState, useEffect, useRef } from "react";
 import { X, Upload, FileText, Trash2, Search, Loader2 } from "lucide-react";
 import { kbApi, KnowledgeBase, Document } from "@/lib/kbApi";

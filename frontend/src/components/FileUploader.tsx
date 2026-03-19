@@ -18,6 +18,36 @@
  */
 'use client';
 
+/**
+ * @userGuide
+ * @title.en File Uploader
+ * @title.zh 文件上传器
+ * @category core
+ * @description.en Upload files to attach to chat messages. Supports drag-and-drop, file preview cards, and multiple file types.
+ * @description.zh 上传文件并附加到聊天消息，支持拖拽上传、文件预览卡片和多种文件类型。
+ * @steps.en
+ *   1. Click the paperclip icon to open file picker
+ *   2. Or drag and drop files directly onto the chat area
+ *   3. Preview selected files in the card view
+ *   4. Hover over a file card to remove it
+ *   5. Send message with attached files
+ * @steps.zh
+ *   1. 点击回形针图标打开文件选择器
+ *   2. 或直接拖拽文件到聊天区域
+ *   3. 在卡片视图中预览已选文件
+ *   4. 悬停文件卡片可移除文件
+ *   5. 发送消息时一并上传附件
+ * @tips.en
+ *   - Supports PDF, DOCX, XLSX, TXT, CSV, JSON, and images
+ *   - Maximum 3 files per message, 100MB per file
+ *   - Files are uploaded when the message is sent
+ * @tips.zh
+ *   - 支持 PDF、DOCX、XLSX、TXT、CSV、JSON 和图片格式
+ *   - 每条消息最多 3 个文件，单个文件最大 100MB
+ *   - 文件在发送消息时上传
+ * @related AgentChat
+ */
+
 import { useState, useRef, useCallback } from 'react';
 import { Paperclip, X, FileText, FileSpreadsheet, Image, File, Upload } from 'lucide-react';
 import {
