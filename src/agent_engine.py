@@ -217,10 +217,12 @@ class AgentEngine:
             print(f"[DEBUG] 绑定 {len(sub_agent_tools)} 个子Agent工具")
 
         # 4. 【AC130-202603161918】RAG 知识库检索工具
-        self._rag_tools = self._create_rag_tools()
-        if self._rag_tools:
-            tools_to_bind.extend(self._rag_tools)
-            print(f"[DEBUG] 绑定 {len(self._rag_tools)} 个RAG检索工具")
+        # DISABLED: 改为自动注入模式，确保 RAG 一定被使用
+        # self._rag_tools = self._create_rag_tools()
+        # if self._rag_tools:
+        #     tools_to_bind.extend(self._rag_tools)
+        #     print(f"[DEBUG] 绑定 {len(self._rag_tools)} 个RAG检索工具")
+        self._rag_tools = []  # Empty list to prevent has_rag_tool check from failing
 
         if not tools_to_bind:
             print(f"[DEBUG] 没有工具需要绑定")
