@@ -1,5 +1,21 @@
 "use client";
 
+/**
+ * @userGuide
+ * @title.en Environment Error Dialog
+ * @title.zh 环境错误对话框
+ * @category reference
+ * @description.en Displays detailed error information when environment initialization fails. Shows problem description, recommended solutions with step-by-step instructions, and expandable technical details for debugging.
+ * @description.zh 环境初始化失败时显示详细错误信息。展示问题描述、带有分步说明的推荐解决方案，以及可展开的技术详情用于调试。
+ * @tips.en
+ *   - Solutions include copyable terminal commands
+ *   - Technical details section can be expanded for debugging
+ *   - Links to external documentation are provided
+ * @tips.zh
+ *   - 解决方案包含可复制的终端命令
+ *   - 技术详情部分可展开查看用于调试
+ *   - 提供外部文档链接
+ */
 import { useState } from "react";
 import {
   AlertTriangle,

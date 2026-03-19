@@ -1,7 +1,18 @@
 /**
- * 环境状态横幅组件
- *
- * 显示环境初始化状态，提供重试按钮。
+ * @userGuide
+ * @title.en Environment Status Banner
+ * @title.zh 环境状态横幅
+ * @category reference
+ * @description.en Displays the skill execution environment initialization status at the top of the page. Shows a loading indicator during initialization and an error message with retry button if initialization fails.
+ * @description.zh 在页面顶部显示技能执行环境的初始化状态。初始化期间显示加载指示器，初始化失败时显示错误信息和重试按钮。
+ * @tips.en
+ *   - The banner automatically disappears when the environment is ready
+ *   - Click the retry button to attempt environment initialization again
+ *   - Skill features are unavailable during initialization (10-30 seconds)
+ * @tips.zh
+ *   - 环境就绪后横幅会自动消失
+ *   - 点击重试按钮可以重新尝试环境初始化
+ *   - 初始化期间（10-30秒）技能功能暂时不可用
  */
 import { Loader2, AlertCircle, RefreshCw, CheckCircle } from 'lucide-react';
 import { useEnvironmentStatus } from '@/hooks/useEnvironmentStatus';
