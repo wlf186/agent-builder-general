@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, ChevronRight, Plus, Database } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { KnowledgeBase } from "@/lib/kbApi";
 
 interface KnowledgeBaseSidebarProps {
@@ -22,54 +21,61 @@ export function KnowledgeBaseSidebar({
   onToggleExpand,
 }: KnowledgeBaseSidebarProps) {
   return (
-    <div className="mb-4">
+    <div className="px-5 py-4 border-t border-white/[0.05]">
       {/* Header */}
-      <button
-        onClick={onToggleExpand}
-        className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-      >
-        {expanded ? (
-          <ChevronDown className="w-4 h-4 text-gray-400" />
-        ) : (
-          <ChevronRight className="w-4 h-4 text-gray-400" />
-        )}
-        <Database className="w-4 h-4 text-emerald-600" />
-        <span>Knowledge</span>
-        {knowledgeBases.length > 0 && (
-          <span className="ml-auto bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded-full">
-            {knowledgeBases.length}
-          </span>
-        )}
-      </button>
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={onToggleExpand}
+          className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors"
+        >
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          Knowledge
+          <span className="text-gray-600 normal-case">({knowledgeBases.length})</span>
+        </button>
+        <button
+          onClick={onCreateKb}
+          className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
+        >
+          <Plus size={12} className="text-gray-400" />
+        </button>
+      </div>
 
       {/* Knowledge Base List */}
       {expanded && (
-        <div className="mt-1 ml-4 space-y-1">
-          {knowledgeBases.map((kb) => (
-            <button
-              key={kb.kb_id}
-              onClick={() => onSelectKb(kb)}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors ${
-                selectedKbId === kb.kb_id
-                  ? "bg-emerald-50 text-emerald-700"
-                  : "text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              <span className="truncate">{kb.name}</span>
-              <span className="ml-auto text-xs text-gray-400">
-                {kb.doc_count} docs
-              </span>
-            </button>
-          ))}
-
-          {/* Create Button */}
-          <button
-            onClick={onCreateKb}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-dashed border-gray-200 hover:border-emerald-300"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create Knowledge Base</span>
-          </button>
+        <div className="space-y-1.5">
+          {knowledgeBases.length === 0 ? (
+            <div className="text-xs text-gray-600 py-2">
+              No knowledge bases
+            </div>
+          ) : (
+            knowledgeBases.map((kb) => (
+              <div
+                key={kb.kb_id}
+                className={`rounded-lg hover:bg-white/5 cursor-pointer ${
+                  selectedKbId === kb.kb_id ? "bg-white/5" : ""
+                }`}
+              >
+                <div
+                  className="flex items-center justify-between py-2 px-3"
+                  onClick={() => onSelectKb(kb)}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        selectedKbId === kb.kb_id
+                          ? "bg-emerald-500 shadow-lg shadow-emerald-500/50"
+                          : "bg-gray-500"
+                      }`}
+                    />
+                    <span className="text-sm text-gray-300 truncate">{kb.name}</span>
+                  </div>
+                  <span className="text-xs text-gray-600">
+                    {kb.doc_count} docs
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
     </div>
