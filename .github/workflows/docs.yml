@@ -1,0 +1,91 @@
+# .github/workflows/docs.yml
+name: User Manual
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/src/components/**/*.tsx'
+      - 'docs-site/**'
+      - 'scripts/extract-user-guide.ts'
+      - 'scripts/validate-user-guide.ts'
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/src/components/**/*.tsx'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install docs-site dependencies
+        run: cd docs-site && npm ci
+
+      - name: Extract user guides
+        run: npm run docs:extract
+
+      - name: Check for changes
+        run: |
+          if git diff --exit-code docs-site/en docs-site/zh; then
+            echo "✅ Docs are up to date"
+          else
+            echo "❌ Docs are out of sync. Run 'npm run docs:extract' and commit changes."
+            exit 1
+          fi
+
+      - name: Validate bilingual content
+        run: npm run docs:validate
+
+  build:
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install docs-site dependencies
+        run: cd docs-site && npm ci
+
+      - name: Extract and build
+        run: |
+          npm run docs:extract
+          npm run docs:build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-site/.vitepress/dist
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
