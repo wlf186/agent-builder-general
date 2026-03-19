@@ -1,5 +1,37 @@
 "use client";
 
+/**
+ * @userGuide
+ * @title.en Skill Details
+ * @title.zh 技能详情
+ * @category advanced
+ * @description.en View detailed information about a skill including its files, documentation, and metadata. Browse skill content with a file tree navigation.
+ * @description.zh 查看技能的详细信息，包括文件列表、文档和元数据。通过文件树导航浏览技能内容。
+ * @steps.en
+ *   1. Click on a skill card to open the detail dialog
+ *   2. View skill name, description, and source (Official/Custom)
+ *   3. Browse the file list on the left panel
+ *   4. Click on any file to view its content
+ *   5. Markdown files are auto-selected for initial display
+ *   6. Check version and author information in the footer
+ * @steps.zh
+ *   1. 点击技能卡片打开详情对话框
+ *   2. 查看技能名称、描述和来源（官方/自定义）
+ *   3. 浏览左侧面板的文件列表
+ *   4. 点击任意文件查看其内容
+ *   5. Markdown 文件会自动选中并优先展示
+ *   6. 在底部查看版本和作者信息
+ * @tips.en
+ *   - SKILL.md is the main documentation file for each skill
+ *   - Official skills are built-in and maintained by the platform
+ *   - Custom skills are user-uploaded packages
+ * @tips.zh
+ *   - SKILL.md 是每个技能的主要文档文件
+ *   - 官方技能是平台内置和维护的
+ *   - 自定义技能是用户上传的技能包
+ * @related SkillUploadDialog
+ */
+
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {

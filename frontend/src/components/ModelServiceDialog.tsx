@@ -1,5 +1,41 @@
 "use client";
 
+/**
+ * @userGuide
+ * @title.en Model Service Configuration
+ * @title.zh 模型服务配置
+ * @category advanced
+ * @description.en Configure LLM model services for AI agents. Supports multiple providers including Zhipu AI, Alibaba Bailian, and local Ollama.
+ * @description.zh 为 AI 智能体配置大语言模型服务。支持智谱AI、阿里云百炼和本地 Ollama 等多种供应商。
+ * @steps.en
+ *   1. Click the settings icon or "Add Model Service" button
+ *   2. Enter a unique name for the model service
+ *   3. Select a provider (Zhipu AI, Alibaba Bailian, or Ollama)
+ *   4. Enter the service URL (auto-filled for known providers)
+ *   5. Enter the API Key (required for cloud providers)
+ *   6. Click "Test Connection" to verify connectivity and fetch available models
+ *   7. Select a model from the dropdown list
+ *   8. Toggle the enable switch and click "Save"
+ * @steps.zh
+ *   1. 点击设置图标或"添加模型服务"按钮
+ *   2. 输入模型服务的唯一名称
+ *   3. 选择供应商（智谱AI、阿里云百炼或 Ollama）
+ *   4. 输入服务地址（已知供应商会自动填充）
+ *   5. 输入 API Key（云服务商必填）
+ *   6. 点击"测试连接"验证连通性并获取可用模型
+ *   7. 从下拉列表中选择一个模型
+ *   8. 切换启用开关并点击"保存"
+ * @tips.en
+ *   - Use environment variables for API keys: {SERVICE_NAME}_API_KEY format is recommended
+ *   - Test connection before saving to ensure the service is accessible
+ *   - Ollama does not require an API key for local installations
+ * @tips.zh
+ *   - 推荐使用环境变量存储 API Key：格式为 {SERVICE_NAME}_API_KEY
+ *   - 保存前先测试连接以确保服务可访问
+ *   - 本地 Ollama 不需要 API Key
+ * @related AgentChat
+ */
+
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Loader2, CheckCircle, XCircle, Plus, Info, AlertTriangle } from "lucide-react";

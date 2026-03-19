@@ -1,5 +1,37 @@
 "use client";
 
+/**
+ * @userGuide
+ * @title.en Skill Upload
+ * @title.zh 技能上传
+ * @category advanced
+ * @description.en Upload custom skill packages in ZIP format. Each package must contain a SKILL.md file as the skill definition.
+ * @description.zh 上传 ZIP 格式的自定义技能包。每个技能包必须包含 SKILL.md 文件作为技能定义。
+ * @steps.en
+ *   1. Click the upload button to open the dialog
+ *   2. Drag and drop a ZIP file onto the drop zone, or click to browse
+ *   3. Verify the selected file name and size
+ *   4. Click "Upload" to start the upload process
+ *   5. Wait for the upload to complete and see the success message
+ *   6. The dialog will auto-close after successful upload
+ * @steps.zh
+ *   1. 点击上传按钮打开对话框
+ *   2. 将 ZIP 文件拖放到上传区域，或点击浏览选择文件
+ *   3. 确认选中的文件名和大小
+ *   4. 点击"上传"开始上传过程
+ *   5. 等待上传完成并查看成功提示
+ *   6. 上传成功后对话框会自动关闭
+ * @tips.en
+ *   - Only ZIP files are supported for upload
+ *   - The ZIP file must contain a SKILL.md file at the root level
+ *   - Include all necessary scripts and resources in the package
+ * @tips.zh
+ *   - 仅支持上传 ZIP 格式文件
+ *   - ZIP 文件根目录必须包含 SKILL.md 文件
+ *   - 在包中包含所有必要的脚本和资源文件
+ * @related SkillDetailDialog
+ */
+
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Upload, Loader2, CheckCircle, AlertCircle } from "lucide-react";

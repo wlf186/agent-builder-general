@@ -1,5 +1,41 @@
 "use client";
 
+/**
+ * @userGuide
+ * @title.en MCP Service Configuration
+ * @title.zh MCP 服务配置
+ * @category advanced
+ * @description.en Configure MCP (Model Context Protocol) services to extend agent capabilities with external tools. Supports SSE connections with optional authentication.
+ * @description.zh 配置 MCP（模型上下文协议）服务以扩展智能体的外部工具能力。支持 SSE 连接和可选认证。
+ * @steps.en
+ *   1. Click "Add MCP Service" to open the configuration dialog
+ *   2. Enter a unique service name (e.g., weather-api)
+ *   3. Enter the MCP service URL endpoint
+ *   4. Select authentication type: None, Bearer Token, or API Key
+ *   5. If authentication is required, enter the credentials
+ *   6. Optionally add custom headers in JSON format
+ *   7. Toggle the enable switch and click "Save"
+ *   8. Use "Diagnose" button (edit mode) to check connection health
+ * @steps.zh
+ *   1. 点击"添加 MCP 服务"打开配置对话框
+ *   2. 输入唯一的服务名称（如：weather-api）
+ *   3. 输入 MCP 服务 URL 端点
+ *   4. 选择认证类型：无认证、Bearer Token 或 API Key
+ *   5. 如需认证，输入凭据信息
+ *   6. 可选添加 JSON 格式的自定义请求头
+ *   7. 切换启用开关并点击"保存"
+ *   8. 使用"诊断"按钮（编辑模式）检查连接健康状态
+ * @tips.en
+ *   - MCP services use SSE (Server-Sent Events) for real-time communication
+ *   - Use the diagnostic tool to troubleshoot connection issues
+ *   - Custom headers must be valid JSON format
+ * @tips.zh
+ *   - MCP 服务使用 SSE（服务器推送事件）进行实时通信
+ *   - 使用诊断工具排查连接问题
+ *   - 自定义请求头必须是有效的 JSON 格式
+ * @related MCPDiagnosticResult
+ */
+
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Loader2, Server, Link, Key, Settings, Activity, AlertCircle } from "lucide-react";
