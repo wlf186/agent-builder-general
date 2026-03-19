@@ -122,6 +122,26 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   };
 
+  const StatusBadge = ({ status }: { status: string }) => {
+    const styles: Record<string, string> = {
+      ready: "bg-green-100 text-green-700",
+      processing: "bg-yellow-100 text-yellow-700",
+      failed: "bg-red-100 text-red-700",
+    };
+
+    const labels: Record<string, string> = {
+      ready: "Ready",
+      processing: "Processing",
+      failed: "Failed",
+    };
+
+    return (
+      <span className={`text-xs px-2 py-0.5 rounded ${styles[status] || styles.ready}`}>
+        {labels[status] || status}
+      </span>
+    );
+  };
+
   return (
     <div className="fixed inset-y-0 right-0 w-[480px] bg-white shadow-xl z-50 flex flex-col">
       {/* Header */}
@@ -249,8 +269,11 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{doc.filename}</p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-900 truncate">{doc.filename}</p>
+                        <StatusBadge status={doc.status} />
+                      </div>
                       <p className="text-xs text-gray-500">
                         {formatFileSize(doc.file_size)} · {doc.chunk_count} 个文档块
                       </p>
