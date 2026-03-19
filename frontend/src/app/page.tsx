@@ -52,6 +52,7 @@ import { SubAgentSelector } from "@/components/SubAgentSelector";
 import { KnowledgeBaseSelector } from "@/components/KnowledgeBaseSelector";
 import { KnowledgeBaseDialog } from "@/components/KnowledgeBaseDialog";
 import { KbDetailPanel } from "@/components/KbDetailPanel";
+import { KnowledgeBaseSidebar } from "@/components/KnowledgeBaseSidebar";
 import { useLocale } from "@/lib/LocaleContext";
 import { CycleDependencyError } from "@/types";
 import { useEnvironmentStatus } from "@/hooks/useEnvironmentStatus";
@@ -1031,62 +1032,18 @@ export default function Home() {
             )}
           </div>
 
-          {/* Knowledge Bases Section - AC130 */}
-          <div className="px-5 py-4 border-t border-white/[0.05]">
-            <div className="flex items-center justify-between mb-3">
-              <button
-                onClick={() => setSidebarKbExpanded(!sidebarKbExpanded)}
-                className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wider hover:text-gray-400 transition-colors"
-              >
-                {sidebarKbExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                {locale === "zh" ? "知识库" : "Knowledge Bases"}
-                <span className="text-gray-600 normal-case">({knowledgeBases.length})</span>
-              </button>
-              <button
-                onClick={() => { setEditingKb(null); setKbDialogOpen(true); }}
-                className="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
-              >
-                <Plus size={12} className="text-gray-400" />
-              </button>
-            </div>
-            {sidebarKbExpanded && (
-              <div className="space-y-1.5">
-                {knowledgeBases.length === 0 ? (
-                  <div className="text-xs text-gray-600 py-2">
-                    {locale === "zh" ? "暂无知识库" : "No knowledge bases"}
-                  </div>
-                ) : (
-                  knowledgeBases.map((kb) => (
-                    <div
-                      key={kb.kb_id}
-                      className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 group cursor-pointer"
-                      onClick={() => {
-                        setSelectedKb(kb);
-                        setKbDetailOpen(true);
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Database size={12} className="text-emerald-400" />
-                        <span className="text-sm text-gray-300">{kb.name}</span>
-                        <span className="text-[10px] text-gray-500">
-                          {kb.doc_count} {locale === "zh" ? "文档" : "docs"}
-                        </span>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteKb(kb.kb_id);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 rounded transition-all"
-                      >
-                        <Trash2 size={12} className="text-red-400" />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
+          {/* Knowledge Bases Section */}
+          <KnowledgeBaseSidebar
+            knowledgeBases={knowledgeBases}
+            selectedKbId={selectedKb?.kb_id || null}
+            onSelectKb={(kb) => {
+              setSelectedKb(kb);
+              setKbDetailOpen(true);
+            }}
+            onCreateKb={() => { setEditingKb(null); setKbDialogOpen(true); }}
+            expanded={sidebarKbExpanded}
+            onToggleExpand={() => setSidebarKbExpanded(!sidebarKbExpanded)}
+          />
 
           {/* Skills Section */}
           <div className="px-5 py-4 border-t border-white/[0.05]">
