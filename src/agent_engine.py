@@ -1874,6 +1874,11 @@ BEST: 编号"""
         iteration = 0
         max_iterations = 10  # 防止无限循环
 
+        # 【AC130-202603190000】发送 RAG 检索来源元数据
+        # 前端可用于显示来源引用
+        if self._last_retrieval_sources:
+            yield {"type": "rag_sources", "sources": self._last_retrieval_sources}
+
         # 1. 输出思考过程的开始
         yield {"type": "thinking", "content": "正在分析您的问题..."}
 
