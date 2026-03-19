@@ -39,9 +39,9 @@ Agent Builder is a platform for creating AI assistants (agents) that can:
 
 ## Next Steps
 
-- Learn about [Chat Interface](/core/agent-chat) features
-- Explore [Knowledge Bases](/core/knowledge-base-selector)
-- Configure [MCP Services](/advanced/mcp-service-dialog) for tools
+- Learn about [Chat Interface](/en/core/agent-chat) features
+- Explore [Knowledge Bases](/en/core/knowledge-base-selector)
+- Configure [MCP Services](/en/advanced/mcp-service-dialog) for tools
 
 ## Need Help?
 

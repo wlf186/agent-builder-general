@@ -78,6 +78,9 @@ function toKebabCase(name: string): string {
     .toLowerCase();
 }
 
+// Component to category mapping (populated during extraction)
+const componentCategories = new Map<string, string>();
+
 // Generate markdown for a language
 function generateMarkdown(doc: UserGuideDoc, lang: 'en' | 'zh'): string {
   const frontmatter = `---
@@ -109,7 +112,9 @@ ${doc.related.map(r => `  - ${r}`).join('\n')}
     const heading = lang === 'en' ? '## Related\n\n' : '## 相关\n\n';
     related = heading + doc.related.map(r => {
       const kebab = toKebabCase(r);
-      return `- [${r}](./${kebab}.md)`;
+      // Look up the category for the related component
+      const relatedCategory = componentCategories.get(r) || 'core';
+      return `- [${r}](/${lang}/${relatedCategory}/${kebab})`;
     }).join('\n') + '\n';
   }
 
@@ -163,6 +168,11 @@ async function extractUserGuides() {
   }
 
   console.log(`\nExtracted ${docs.length} user guide documents`);
+
+  // Build component to category mapping for cross-category links
+  for (const doc of docs) {
+    componentCategories.set(doc.component, doc.category);
+  }
 
   // Generate markdown files for each language
   for (const lang of ['en', 'zh'] as const) {

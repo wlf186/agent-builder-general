@@ -39,9 +39,9 @@ Agent Builder 是一个创建AI助手（智能体）的平台，它可以：
 
 ## 下一步
 
-- 了解 [聊天界面](/core/agent-chat) 功能
-- 探索 [知识库](/core/knowledge-base-selector)
-- 配置 [MCP服务](/advanced/mcp-service-dialog) 以使用工具
+- 了解 [聊天界面](/zh/core/agent-chat) 功能
+- 探索 [知识库](/zh/core/knowledge-base-selector)
+- 配置 [MCP服务](/zh/advanced/mcp-service-dialog) 以使用工具
 
 ## 需要帮助？
 

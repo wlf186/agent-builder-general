@@ -1,6 +1,30 @@
 /**
- * 会话卡片组件
- * 显示单个会话的预览信息，支持选择、重命名、删除操作
+ * @userGuide
+ * @title.en Conversation Card
+ * @title.zh 对话卡片
+ * @category core
+ * @description.en A card showing a single conversation preview with options to select, rename, or delete.
+ * @description.zh 显示单个对话预览的卡片，支持选择、重命名和删除操作。
+ *
+ * @steps.en
+ *   1. Click on the card to select and open the conversation
+ *   2. Click the pencil icon to rename the conversation
+ *   3. Click the trash icon to delete the conversation
+ *   4. Confirm deletion when prompted
+ * @steps.zh
+ *   1. 点击卡片选择并打开对话
+ *   2. 点击铅笔图标重命名对话
+ *   3. 点击垃圾桶图标删除对话
+ *   4. 在提示时确认删除
+ *
+ * @tips.en
+ *   - Active conversation is highlighted
+ *   - Preview shows the last message snippet
+ * @tips.zh
+ *   - 当前对话会高亮显示
+ *   - 预览显示最后一条消息摘要
+ *
+ * @related ConversationList, ConversationDrawer
  */
 "use client";
 
