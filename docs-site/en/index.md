@@ -8,10 +8,10 @@ hero:
   actions:
     - theme: brand
       text: Get Started
-      link: /getting-started
+      link: /en/getting-started
     - theme: alt
       text: Core Features
-      link: /core/
+      link: /en/core/
 
 features:
   - icon: 🤖

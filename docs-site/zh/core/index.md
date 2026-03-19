@@ -13,4 +13,5 @@ title: 核心功能
 - [文档上传器](./document-uploader.md)
 - [会话列表](./conversation-list.md)
 - [对话历史](./conversation-drawer.md)
+- [对话卡片](./conversation-card.md)
 - [聊天界面](./agent-chat.md)

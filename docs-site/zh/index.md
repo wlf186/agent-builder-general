@@ -8,10 +8,10 @@ hero:
   actions:
     - theme: brand
       text: 快速开始
-      link: /getting-started
+      link: /zh/getting-started
     - theme: alt
       text: 核心功能
-      link: /core/
+      link: /zh/core/
 
 features:
   - icon: 🤖

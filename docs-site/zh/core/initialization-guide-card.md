@@ -11,12 +11,15 @@ related:
 
 ## 使用方法
 
-1. 观察进度条了解初始化进度 2. 等待期间可配置可用选项（人设、MCP 服务） 3. 等待初始化完成后开始对话
+1. 观察进度条了解初始化进度
+2. 等待期间可配置可用选项（人设、MCP 服务）
+3. 等待初始化完成后开始对话
 
 ## 提示
 
-- 配置项在初始化过程中逐步变为可用 - 可以在等待期间设置人设和 MCP 服务
+- 配置项在初始化过程中逐步变为可用
+- 可以在等待期间设置人设和 MCP 服务
 
 ## 相关
 
-- [EnvironmentBanner](./environment-banner.md)
+- [EnvironmentBanner](/zh/reference/environment-banner)

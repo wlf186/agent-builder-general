@@ -13,4 +13,5 @@ title: Core Features
 - [Document Uploader](./document-uploader.md)
 - [Conversation List](./conversation-list.md)
 - [Conversation History](./conversation-drawer.md)
+- [Conversation Card](./conversation-card.md)
 - [Chat Interface](./agent-chat.md)

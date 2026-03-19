@@ -28,6 +28,7 @@ __pycache__/
 .env.test.local
 .env.production.local
 *.env
+.env.langfuse
 
 # Encrypted secrets files (optional - uncomment to exclude encrypted files)
 # data/.secrets.json.enc
@@ -100,3 +101,15 @@ frontend/teams/
 # Demo resources and artifacts
 resources/
 routine-uat-demo/
+
+# pip installation error artifacts
+=*
+
+# Temporary debug scripts (should be in scripts/ or tests/)
+quick_*.py
+network_debug*.py
+screenshot*.py
+*_debug.py
+
+# Manual test artifacts
+manual-test-*.png

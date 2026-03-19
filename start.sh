@@ -82,10 +82,19 @@ start_langfuse() {
 
     LANGFUSE_PORT=3000
 
-    # 检查 docker-compose 是否可用
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-        log_warn "Docker Compose 不可用，跳过 Langfuse 启动"
-        log_warn "如需启用可观测性，请先安装 Docker Compose"
+    # 检查容器编排工具是否可用 (优先级: podman-compose > docker compose > docker-compose)
+    local compose_cmd=""
+    if command -v podman-compose &> /dev/null; then
+        compose_cmd="podman-compose"
+    elif docker compose version &> /dev/null 2>&1; then
+        compose_cmd="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        compose_cmd="docker-compose"
+    fi
+
+    if [ -z "$compose_cmd" ]; then
+        log_warn "容器编排工具不可用 (podman-compose/docker-compose)，跳过 Langfuse 启动"
+        log_warn "如需启用可观测性，请先安装 podman-compose 或 docker-compose"
         return 0
     fi
 
@@ -102,11 +111,8 @@ start_langfuse() {
     fi
 
     # 启动 Langfuse 服务
-    if docker compose version &> /dev/null; then
-        docker compose -f docker-compose.langfuse.yml up -d
-    else
-        docker-compose -f docker-compose.langfuse.yml up -d
-    fi
+    log_info "使用 $compose_cmd 启动 Langfuse..."
+    $compose_cmd -f docker-compose.langfuse.yml up -d
 
     log_info "Langfuse 服务启动中..."
     sleep 5  # 等待服务初始化

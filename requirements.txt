@@ -26,3 +26,6 @@ sentence-transformers>=2.2.0
 pypdfium2>=4.0.0
 python-docx>=1.0.0
 langchain-text-splitters>=0.0.1
+
+# Langfuse 可观测性 (AC130-202603170000)
+langfuse>=2.0.0

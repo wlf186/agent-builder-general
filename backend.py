@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
+# 加载 .env 环境变量
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
+
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -325,6 +329,7 @@ class ChatRequest(BaseModel):
     message: str
     history: List[Dict[str, str]] = []  # 对话历史 [{"role": "user/assistant", "content": "..."}]
     file_ids: List[str] = []  # 上传文件的ID列表
+    conversation_id: Optional[str] = None  # 【Langfuse】会话ID，用于反向查询
 
 
 class CreateMCPServiceRequest(BaseModel):
@@ -901,7 +906,7 @@ async def chat_stream(name: str, req: ChatRequest):
             # 【AC130-202603150000】增强异常处理 - 捕获 LLM 调用异常
             # ============================================================================
             try:
-                async for event in instance.chat_stream(req.message, req.history, file_context):
+                async for event in instance.chat_stream(req.message, req.history, file_context, conversation_id=req.conversation_id):
                     # 记录 SSE 事件类型（用于调试）
                     event_type = event.get('type', 'unknown')
                     logger.log_sse_event(event_type)
