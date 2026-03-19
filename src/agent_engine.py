@@ -111,6 +111,7 @@ class AgentEngine:
         self.kb_manager = kb_manager
         self.embedder = embedder
         self._retrievers: Dict[str, Any] = {}  # kb_id -> Retriever
+        self._last_retrieval_sources: List[Dict[str, Any]] = []  # Track sources for citations
 
         # 预加载知识库检索器
         if kb_manager and config.knowledge_bases:
@@ -663,10 +664,12 @@ Returns:
             str: 格式化的检索结果，如果无结果返回空字符串
         """
         if not self.config.knowledge_bases or not self._retrievers:
+            self._last_retrieval_sources = []
             return ""
 
         config = self.config.retrieval_config
         if not config:
+            self._last_retrieval_sources = []
             return ""
 
         all_results = []
@@ -686,11 +689,22 @@ Returns:
                     print(f"[ERROR] 检索失败 (kb_id={kb_id}): {e}")
 
         if not all_results:
+            self._last_retrieval_sources = []
             return ""
 
         # 按相似度排序，取 Top-K
         all_results.sort(key=lambda x: x.score, reverse=True)
         top_results = all_results[:config.top_k]
+
+        # Track sources for citation
+        self._last_retrieval_sources = [
+            {
+                "filename": r.filename,
+                "chunk_index": r.chunk_index,
+                "score": round(r.score, 2)
+            }
+            for r in top_results
+        ]
 
         # 格式化为上下文
         return self._format_retrieved_context(top_results)
@@ -715,6 +729,10 @@ Returns:
             )
 
         return "\n".join(chunks)
+
+    def get_last_retrieval_sources(self) -> List[Dict[str, Any]]:
+        """Get sources from last retrieval for citation display"""
+        return self._last_retrieval_sources
 
     def _get_system_prompt(self) -> str:
         """获取系统提示词"""
