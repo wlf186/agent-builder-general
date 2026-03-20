@@ -150,9 +150,9 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
 
   const StatusBadge = ({ status }: { status: string }) => {
     const styles: Record<string, string> = {
-      ready: "bg-green-100 text-green-700",
-      processing: "bg-yellow-100 text-yellow-700",
-      failed: "bg-red-100 text-red-700",
+      ready: "bg-green-500/20 text-green-400",
+      processing: "bg-yellow-500/20 text-yellow-400",
+      failed: "bg-red-500/20 text-red-400",
     };
 
     const labels: Record<string, string> = {
@@ -169,39 +169,39 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[480px] bg-white shadow-xl z-50 flex flex-col">
+    <div className="fixed inset-y-0 right-0 w-[480px] bg-[#1a1a2e] shadow-2xl z-50 flex flex-col border-l border-white/10">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b">
+      <div className="flex items-center justify-between p-4 border-b border-white/10 bg-white/[0.02]">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">{knowledgeBase.name}</h2>
-          <p className="text-sm text-gray-500">{knowledgeBase.description || "暂无描述"}</p>
+          <h2 className="text-lg font-semibold text-white">{knowledgeBase.name}</h2>
+          <p className="text-sm text-gray-400">{knowledgeBase.description || "暂无描述"}</p>
         </div>
         <button
           onClick={onClose}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 p-4 border-b bg-gray-50">
+      <div className="grid grid-cols-3 gap-4 p-4 border-b border-white/10 bg-white/[0.02]">
         <div className="text-center">
-          <p className="text-2xl font-semibold text-gray-900">{knowledgeBase.doc_count}</p>
-          <p className="text-xs text-gray-500">文档</p>
+          <p className="text-2xl font-semibold text-white">{knowledgeBase.doc_count}</p>
+          <p className="text-xs text-gray-400">文档</p>
         </div>
         <div className="text-center">
-          <p className="text-2xl font-semibold text-gray-900">{knowledgeBase.chunk_count}</p>
-          <p className="text-xs text-gray-500">文档块</p>
+          <p className="text-2xl font-semibold text-white">{knowledgeBase.chunk_count}</p>
+          <p className="text-xs text-gray-400">文档块</p>
         </div>
         <div className="text-center">
-          <p className="text-2xl font-semibold text-gray-900">{formatFileSize(knowledgeBase.total_size)}</p>
-          <p className="text-xs text-gray-500">总大小</p>
+          <p className="text-2xl font-semibold text-white">{formatFileSize(knowledgeBase.total_size)}</p>
+          <p className="text-xs text-gray-400">总大小</p>
         </div>
       </div>
 
       {/* Upload */}
-      <div className="p-4 border-b">
+      <div className="p-4 border-b border-white/10">
         <input
           ref={fileInputRef}
           type="file"
@@ -217,28 +217,28 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
           onDrop={handleDrop}
           className={`w-full flex flex-col items-center justify-center gap-1 px-4 py-6 border-2 border-dashed rounded-lg transition-colors cursor-pointer ${
             isDragging
-              ? "border-emerald-500 bg-emerald-50"
-              : "border-gray-300 hover:border-emerald-500 hover:bg-emerald-50"
+              ? "border-emerald-500 bg-emerald-500/10"
+              : "border-white/20 hover:border-emerald-500 hover:bg-emerald-500/10"
           } ${uploading ? "opacity-50 pointer-events-none" : ""}`}
         >
           {uploading ? (
             <>
               <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
-              <span className="text-sm text-gray-600">上传中...</span>
+              <span className="text-sm text-gray-300">上传中...</span>
             </>
           ) : (
             <>
               <Upload className="w-6 h-6 text-gray-400" />
-              <span className="text-sm text-gray-600">拖拽文件到此处或点击上传</span>
-              <span className="text-xs text-gray-400">支持 PDF/DOCX/TXT/MD</span>
+              <span className="text-sm text-gray-300">拖拽文件到此处或点击上传</span>
+              <span className="text-xs text-gray-500">支持 PDF/DOCX/TXT/MD</span>
             </>
           )}
         </div>
       </div>
 
       {/* Search Test */}
-      <div className="p-4 border-b">
-        <h3 className="text-sm font-medium text-gray-700 mb-2">检索测试</h3>
+      <div className="p-4 border-b border-white/10">
+        <h3 className="text-sm font-medium text-gray-300 mb-2">检索测试</h3>
         <div className="flex gap-2">
           <input
             type="text"
@@ -246,7 +246,7 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             placeholder="输入测试问题..."
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            className="flex-1 px-3 py-2 bg-white/5 border border-white/20 text-white placeholder-gray-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
           <button
             onClick={handleSearch}
@@ -259,14 +259,14 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
         {searchResults.length > 0 && (
           <div className="mt-3 space-y-2">
             {searchResults.map((result, i) => (
-              <div key={i} className="p-2 bg-gray-50 rounded-lg">
+              <div key={i} className="p-2 bg-white/5 rounded-lg">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-gray-500">{result.filename}</span>
-                  <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">
+                  <span className="text-xs text-gray-400">{result.filename}</span>
+                  <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded">
                     {(result.score * 100).toFixed(0)}%
                   </span>
                 </div>
-                <p className="text-sm text-gray-700 line-clamp-2">{result.content}</p>
+                <p className="text-sm text-gray-300 line-clamp-2">{result.content}</p>
               </div>
             ))}
           </div>
@@ -276,14 +276,14 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
       {/* Documents List */}
       <div className="flex-1 overflow-auto">
         <div className="p-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">文档列表 ({documents.length})</h3>
+          <h3 className="text-sm font-medium text-gray-300 mb-2">文档列表 ({documents.length})</h3>
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
             </div>
           ) : documents.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              <FileText className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+              <FileText className="w-12 h-12 mx-auto mb-2 text-gray-600" />
               <p>还没有上传文档</p>
             </div>
           ) : (
@@ -291,13 +291,13 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
               {documents.map((doc) => (
                 <div
                   key={doc.doc_id}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100"
+                  className="flex items-center justify-between p-3 bg-white/5 rounded-lg hover:bg-white/10"
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-gray-900 truncate">{doc.filename}</p>
+                        <p className="text-sm font-medium text-white truncate">{doc.filename}</p>
                         <StatusBadge status={doc.status} />
                       </div>
                       <p className="text-xs text-gray-500">
@@ -307,7 +307,7 @@ export function KbDetailPanel({ knowledgeBase, onClose, onUpdate }: KbDetailPane
                   </div>
                   <button
                     onClick={() => handleDeleteDocument(doc.doc_id)}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
