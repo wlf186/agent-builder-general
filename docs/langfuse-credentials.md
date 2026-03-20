@@ -1,7 +1,9 @@
 # Langfuse 可观测性配置
 
-**Updated**: 2026-03-19
+**Updated**: 2026-03-20
 **Environment**: Local Docker (Podman)
+
+> ⚠️ **凭证安全原则**: 所有密钥必须通过环境变量配置，禁止明文写入代码或配置文件。
 
 ## 概述
 

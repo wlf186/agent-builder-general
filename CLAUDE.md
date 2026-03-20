@@ -176,6 +176,19 @@ pkill -f "next-server" && rm -rf frontend/.next && cd frontend && npm run dev
 
 ---
 
+## 凭证安全
+
+> ⚠️ **禁止明文存储凭证** - 所有 Token/密钥必须使用环境变量，绝不写入代码或 git config。
+
+| 凭证 | 环境变量 | 用途 |
+|------|----------|------|
+| GitHub PAT | `$CCGHTK` | Git push/PR 操作 |
+| Langfuse Keys | `$LANGFUSE_PUBLIC_KEY` / `$LANGFUSE_SECRET_KEY` | 可观测性追踪 |
+
+**Git 远程配置**: 使用 SSH (`git@github.com:...`)，不嵌入 Token。
+
+---
+
 ## 黄金原则摘要
 
 1. **无文档不执行** - 复杂需求先在 `docs/exec-plans/active/` 写计划
