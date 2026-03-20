@@ -196,7 +196,6 @@ export default function Home() {
 
   // 【AC130-202603161542】知识库 RAG
   const [selectedKnowledgeBases, setSelectedKnowledgeBases] = useState<string[]>([]);
-  const [configKnowledgeBasesExpanded, setConfigKnowledgeBasesExpanded] = useState(false);
 
   // 展开/收起状态
   const [sidebarMcpExpanded, setSidebarMcpExpanded] = useState(true);
@@ -2000,50 +1999,18 @@ export default function Home() {
           />
 
           {/* 【AC130-202603161542】知识库配置 - 环境初始化期间禁用 */}
-          <Card className={cn(
-            "overflow-hidden transition-all duration-300",
+          <div className={cn(
+            "transition-all duration-300",
             isEnvironmentCreating && "opacity-50 pointer-events-none"
           )}>
-            <div
-              className="px-5 py-4 border-b border-white/[0.05] flex items-center gap-3 bg-white/[0.02] cursor-pointer"
-              onClick={() => !isEnvironmentCreating && setConfigKnowledgeBasesExpanded(!configKnowledgeBasesExpanded)}
-            >
-              <BookOpen size={16} className={cn(
-                "transition-colors",
-                isEnvironmentCreating ? "text-gray-500" : "text-emerald-400"
-              )} />
-              <span className="font-medium text-sm text-gray-300 flex-1">
-                {locale === "zh" ? "知识库配置" : "Knowledge Base"}
-              </span>
-              {configKnowledgeBasesExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-              {isEnvironmentCreating && (
-                <Loader2 size={14} className="text-blue-400 animate-spin" />
-              )}
-            </div>
-            {configKnowledgeBasesExpanded && (
-              <CardContent className="p-5">
-                <p className="text-xs text-gray-500 mb-3">
-                  {locale === "zh"
-                    ? "💡 选择知识库后，智能体将基于私有文档内容回答问题"
-                    : "💡 Select knowledge bases to enable the agent to answer based on private documents"}
-                </p>
-                <KnowledgeBaseSelector
-                  selectedIds={selectedKnowledgeBases}
-                  onChange={setSelectedKnowledgeBases}
-                  disabled={isEnvironmentCreating || isSaving}
-                />
-                {selectedKnowledgeBases.length > 0 && (
-                  <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                    <p className="text-xs text-emerald-400">
-                      {locale === "zh"
-                        ? `✓ 已挂载 ${selectedKnowledgeBases.length} 个知识库`
-                        : `✓ ${selectedKnowledgeBases.length} knowledge base(s) mounted`}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            )}
-          </Card>
+            <KnowledgeBaseSelector
+              selectedIds={selectedKnowledgeBases}
+              onChange={setSelectedKnowledgeBases}
+              disabled={isEnvironmentCreating || isSaving}
+              onCreateNew={() => { setEditingKb(null); setKbDialogOpen(true); }}
+              onItemClick={(kb) => { setSelectedKb(kb); setKbDetailOpen(true); }}
+            />
+          </div>
         </motion.div>
 
         {/* Right Panel - Chat - 环境初始化期间禁用 */}
