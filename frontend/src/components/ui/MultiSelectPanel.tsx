@@ -62,6 +62,7 @@ const colorClasses: Record<ThemeColor, {
   border: string;
   text: string;
   iconBg: string;
+  checkbox: string;
 }> = {
   emerald: {
     accent: "text-emerald-400",
@@ -69,6 +70,7 @@ const colorClasses: Record<ThemeColor, {
     border: "border-emerald-500/20",
     text: "text-emerald-300",
     iconBg: "bg-emerald-500/20",
+    checkbox: "accent-emerald-500",
   },
   indigo: {
     accent: "text-indigo-400",
@@ -76,6 +78,7 @@ const colorClasses: Record<ThemeColor, {
     border: "border-indigo-500/20",
     text: "text-indigo-300",
     iconBg: "bg-indigo-500/20",
+    checkbox: "accent-indigo-500",
   },
   blue: {
     accent: "text-blue-400",
@@ -83,6 +86,7 @@ const colorClasses: Record<ThemeColor, {
     border: "border-blue-500/20",
     text: "text-blue-300",
     iconBg: "bg-blue-500/20",
+    checkbox: "accent-blue-500",
   },
   purple: {
     accent: "text-purple-400",
@@ -90,6 +94,7 @@ const colorClasses: Record<ThemeColor, {
     border: "border-purple-500/20",
     text: "text-purple-300",
     iconBg: "bg-purple-500/20",
+    checkbox: "accent-purple-500",
   },
   amber: {
     accent: "text-amber-400",
@@ -97,6 +102,7 @@ const colorClasses: Record<ThemeColor, {
     border: "border-amber-500/20",
     text: "text-amber-300",
     iconBg: "bg-amber-500/20",
+    checkbox: "accent-amber-500",
   },
   red: {
     accent: "text-red-400",
@@ -104,6 +110,7 @@ const colorClasses: Record<ThemeColor, {
     border: "border-red-500/20",
     text: "text-red-300",
     iconBg: "bg-red-500/20",
+    checkbox: "accent-red-500",
   },
 };
 
@@ -209,7 +216,7 @@ export function MultiSelectPanel<T>({
               {/* Hint */}
               {hint && (
                 <div className={cn("flex items-start gap-2 p-3 rounded-lg", theme.bg, theme.border, "border")}>
-                  <span className={theme.accent}>&#x1F4A1;</span>
+                  <span className={theme.accent}>💡</span>
                   <div className="text-xs text-gray-400">{hint}</div>
                 </div>
               )}
@@ -255,7 +262,7 @@ export function MultiSelectPanel<T>({
                               disabled={disabled}
                               className="h-7 w-7 p-0 text-gray-400 hover:text-white"
                             >
-                              &#x1F441;
+                              👁️
                             </Button>
                           )}
                           <Button
@@ -316,7 +323,7 @@ export function MultiSelectPanel<T>({
                           checked={false}
                           onChange={() => handleToggle(id)}
                           disabled={disabled}
-                          className={cn("mt-0.5 w-4 h-4 rounded flex-shrink-0", `accent-${color}-500`)}
+                          className={cn("mt-0.5 w-4 h-4 rounded flex-shrink-0", theme.checkbox)}
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
