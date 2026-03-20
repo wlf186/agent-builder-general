@@ -216,12 +216,20 @@ export default function Home() {
   const [kbDialogOpen, setKbDialogOpen] = useState(false);
   const [editingKb, setEditingKb] = useState<KnowledgeBase | null>(null);
   const [configSubAgentsExpanded, setConfigSubAgentsExpanded] = useState(false);
-  const [sidebarResourcesExpanded, setSidebarResourcesExpanded] = useState(true);  // 【AC130 新增】
+  const [sidebarResourcesExpanded, setSidebarResourcesExpanded] = useState(true);
+
+  // Langfuse URL - dynamically set to support remote access
+  const [langfuseUrl, setLangfuseUrl] = useState("http://localhost:3000");  // 【AC130 新增】
 
   // 巻加历史会话相关状态
   const [conversationDrawerOpen, setConversationDrawerOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [currentConversationMessages, setCurrentConversationMessages] = useState<any[]>([]);
+
+  // Set Langfuse URL dynamically for remote access
+  useEffect(() => {
+    setLangfuseUrl(`http://${window.location.hostname}:3000`);
+  }, []);
 
   // 环境状态管理 - 异步环境初始化功能
   const { isReady: isEnvironmentReady, isCreating: isEnvironmentCreating } =
@@ -1143,7 +1151,7 @@ export default function Home() {
                   <ExternalLink size={12} className="text-gray-500 group-hover:text-gray-400" />
                 </a>
                 <a
-                  href="http://localhost:3000"
+                  href={langfuseUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 group cursor-pointer"
