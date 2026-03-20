@@ -14,6 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useLocale } from "@/lib/LocaleContext";
 
 // Theme color configuration
 export type ThemeColor = "emerald" | "indigo" | "blue" | "purple" | "amber" | "red";
@@ -138,6 +139,8 @@ export function MultiSelectPanel<T>({
 }: MultiSelectPanelProps<T>) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [searchQuery, setSearchQuery] = useState("");
+  const { locale } = useLocale();
+  const zh = locale === "zh";
 
   const theme = colorClasses[color];
 
@@ -224,7 +227,7 @@ export function MultiSelectPanel<T>({
               {/* Selected Items */}
               {selectedItems.length > 0 && (
                 <div>
-                  <div className="text-xs text-gray-500 mb-2">已选择</div>
+                  <div className="text-xs text-gray-500 mb-2">{zh ? "已选择" : "Selected"}</div>
                   <div className="space-y-2">
                     {selectedItems.map((item) => {
                       const id = getId(item);
@@ -301,7 +304,7 @@ export function MultiSelectPanel<T>({
                     {icon}
                   </div>
                   <p className="text-sm text-gray-500">
-                    {searchQuery ? "没有找到匹配项" : emptyMessage}
+                    {searchQuery ? (zh ? "没有找到匹配项" : "No matches found") : emptyMessage}
                   </p>
                 </div>
               ) : (
@@ -365,7 +368,7 @@ export function MultiSelectPanel<T>({
                   )}
                 >
                   <Plus size={14} />
-                  新建
+                  {zh ? "新建" : "Create New"}
                 </button>
               )}
             </CardContent>
