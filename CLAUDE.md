@@ -185,7 +185,10 @@ pkill -f "next-server" && rm -rf frontend/.next && cd frontend && npm run dev
 | GitHub PAT | `$CCGHTK` | Git push/PR 操作 |
 | Langfuse Keys | `$LANGFUSE_PUBLIC_KEY` / `$LANGFUSE_SECRET_KEY` | 可观测性追踪 |
 
-**Git 远程配置**: 使用 SSH (`git@github.com:...`)，不嵌入 Token。
+**Git 远程配置**: HTTPS URL，推送时使用 `$CCGHTK`：
+```bash
+git push https://${CCGHTK}@github.com/wlf186/agent-builder-general.git main
+```
 
 ---
 
