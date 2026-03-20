@@ -13,6 +13,7 @@ import { useState, useEffect } from "react";
 import { Database } from "lucide-react";
 import { MultiSelectPanel } from "@/components/ui/MultiSelectPanel";
 import { kbApi, KnowledgeBase } from "@/lib/kbApi";
+import { useLocale } from "@/lib/LocaleContext";
 
 interface KnowledgeBaseSelectorProps {
   selectedIds: string[];
@@ -31,6 +32,8 @@ export function KnowledgeBaseSelector({
   onCreateNew,
   onItemClick,
 }: KnowledgeBaseSelectorProps) {
+  const { locale } = useLocale();
+  const zh = locale === "zh";
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -41,33 +44,36 @@ export function KnowledgeBaseSelector({
         const data = await kbApi.listKnowledgeBases();
         setKnowledgeBases(data);
       } catch (error) {
-        console.error("加载知识库失败:", error);
+        console.error(zh ? "加载知识库失败:" : "Failed to load knowledge bases:", error);
       } finally {
         setLoading(false);
       }
     };
     loadKnowledgeBases();
-  }, []);
+  }, [zh]);
 
   return (
     <MultiSelectPanel<KnowledgeBase>
-      title="知识库配置"
+      title={zh ? "知识库配置" : "Knowledge Base Configuration"}
       icon={<Database size={16} />}
       color="emerald"
-      hint="选择知识库后，智能体将基于私有文档内容回答问题"
+      hint={zh
+        ? "选择知识库后，智能体将基于私有文档内容回答问题"
+        : "After selecting knowledge bases, the agent will answer questions based on private document content"
+      }
       items={knowledgeBases}
       selectedIds={selectedIds}
       onChange={onChange}
       getId={(kb) => kb.kb_id}
       getTitle={(kb) => kb.name}
-      getDescription={(kb) => kb.description || "暂无描述"}
+      getDescription={(kb) => kb.description || (zh ? "暂无描述" : "No description")}
       getBadges={(kb) => [
-        { label: `${kb.doc_count} 文档` },
-        { label: `${kb.chunk_count} 分块` },
+        { label: `${kb.doc_count} ${zh ? "文档" : "docs"}` },
+        { label: `${kb.chunk_count} ${zh ? "分块" : "chunks"}` },
       ]}
       getItemIcon={() => <Database size={14} className="text-emerald-400" />}
-      searchPlaceholder="搜索知识库..."
-      emptyMessage="还没有知识库，请先创建"
+      searchPlaceholder={zh ? "搜索知识库..." : "Search knowledge bases..."}
+      emptyMessage={zh ? "还没有知识库，请先创建" : "No knowledge bases yet, please create one"}
       onCreateNew={onCreateNew}
       onItemClick={onItemClick}
       disabled={disabled}
