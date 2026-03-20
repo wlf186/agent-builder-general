@@ -86,15 +86,15 @@ export function KnowledgeBaseDialog({ knowledgeBase, onClose, onSave }: Knowledg
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-[#1a1a2e] rounded-2xl shadow-2xl border border-white/10 w-full max-w-md mx-4">
+        <div className="flex items-center justify-between p-4 border-b border-white/10 bg-white/[0.02]">
+          <h2 className="text-lg font-semibold text-white">
             {isEdit ? "编辑知识库" : "新建知识库"}
           </h2>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded transition-colors"
+            className="p-1 text-gray-400 hover:text-white hover:bg-white/10 rounded transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -102,27 +102,27 @@ export function KnowledgeBaseDialog({ knowledgeBase, onClose, onSave }: Knowledg
 
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-sm">
+            <div className="p-3 bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg text-sm">
               {error}
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              名称 <span className="text-red-500">*</span>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              名称 <span className="text-red-400">*</span>
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="例如：公司制度库"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              className="w-full px-3 py-2 bg-white/5 border border-white/20 text-white placeholder-gray-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
               disabled={loading}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-300 mb-1">
               描述
             </label>
             <textarea
@@ -130,14 +130,14 @@ export function KnowledgeBaseDialog({ knowledgeBase, onClose, onSave }: Knowledg
               onChange={(e) => setDescription(e.target.value)}
               placeholder="描述这个知识库的用途..."
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none"
+              className="w-full px-3 py-2 bg-white/5 border border-white/20 text-white placeholder-gray-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-none"
               disabled={loading}
             />
           </div>
 
-          <div className="bg-gray-50 p-3 rounded-lg">
-            <p className="text-sm text-gray-600">
-              <strong>嵌入模型：</strong> BAAI/bge-small-zh-v1.5
+          <div className="bg-white/5 border border-white/10 p-3 rounded-lg">
+            <p className="text-sm text-gray-300">
+              <strong className="text-white">嵌入模型：</strong> BAAI/bge-small-zh-v1.5
             </p>
             <p className="text-xs text-gray-500 mt-1">
               中文优化，512 维向量，支持 PDF/DOCX/TXT/MD 格式
@@ -148,7 +148,7 @@ export function KnowledgeBaseDialog({ knowledgeBase, onClose, onSave }: Knowledg
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              className="px-4 py-2 text-gray-300 hover:bg-white/10 rounded-lg transition-colors"
               disabled={loading}
             >
               取消
