@@ -902,7 +902,7 @@ Returns:
 
     # ==================== 通用工具调用 ====================
 
-    async def _execute_tool(self, tool_name: str, tool_args: Dict) -> str:
+    async def _execute_tool(self, tool_name: str, tool_args: Dict, trace_id: Optional[str] = None) -> str:
         """执行工具调用"""
         # ========================================
         # 【AC130-202603142000 TC-001 修复】展开 kwargs 参数
@@ -1071,7 +1071,7 @@ Returns:
         for tool_call in tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call.get("args", {})
-            result = await self._execute_tool(tool_name, tool_args)
+            result = await self._execute_tool(tool_name, tool_args, trace_id=None)
             tool_messages.append(
                 ToolMessage(content=result, tool_call_id=tool_call.get("id", "unknown"))
             )
@@ -1282,7 +1282,7 @@ REFLECTION: 改进建议（如果需要）"""
         tool_calls = self._parse_tool_calls(response)
         tool_results = []
         for tool_call in tool_calls:
-            result = await self._execute_tool(tool_call["name"], tool_call.get("args", {}))
+            result = await self._execute_tool(tool_call["name"], tool_call.get("args", {}), trace_id=None)
             tool_results.append(f"工具 {tool_call['name']} 结果: {result}")
 
         if tool_results:
@@ -1417,7 +1417,7 @@ ARGS: {{"参数名": "参数值"}}
             if line.startswith('TOOL:'):
                 if current_tool:
                     tool_name = current_tool["name"]
-                    result = await self._execute_tool(tool_name, current_tool.get("args", {}))
+                    result = await self._execute_tool(tool_name, current_tool.get("args", {}), trace_id=None)
                     tool_results[tool_name] = result
                 current_tool = {"name": line[5:].strip(), "args": {}}
             elif line.startswith('ARGS:') and current_tool:
@@ -1429,7 +1429,7 @@ ARGS: {{"参数名": "参数值"}}
 
         if current_tool:
             tool_name = current_tool["name"]
-            result = await self._execute_tool(tool_name, current_tool.get("args", {}))
+            result = await self._execute_tool(tool_name, current_tool.get("args", {}), trace_id=None)
             tool_results[tool_name] = result
 
         return {"tool_results": tool_results, "iterations": state.get("iterations", 0) + 1}
@@ -1594,7 +1594,7 @@ BEST: 编号"""
         tool_calls = self._parse_tool_calls(response)
         tool_results = []
         for tool_call in tool_calls:
-            result = await self._execute_tool(tool_call["name"], tool_call.get("args", {}))
+            result = await self._execute_tool(tool_call["name"], tool_call.get("args", {}), trace_id=None)
             tool_results.append(f"工具 {tool_call['name']} 结果: {result}")
 
         if tool_results:
@@ -2220,7 +2220,7 @@ BEST: 编号"""
                             )
 
                         # 执行工具
-                        result = await self._execute_tool(tool_name, tool_args)
+                        result = await self._execute_tool(tool_name, tool_args, trace_id=langfuse_trace_id)
 
                         # 【Langfuse 追踪】结束工具 Span
                         if tool_span_id and is_langfuse_enabled():
