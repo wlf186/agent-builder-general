@@ -751,7 +751,14 @@ Returns:
                 span_id=rag_rerank_span_id,
                 output={
                     "top_results_count": len(top_results),
-                    "top_scores": [round(r.score, 2) for r in top_results]
+                    "results": [
+                        {
+                            "filename": r.filename,
+                            "chunk_index": r.chunk_index,
+                            "score": round(r.score, 4)
+                        }
+                        for r in top_results
+                    ]
                 }
             )
 
