@@ -546,6 +546,23 @@ Example call format:
         """清除缓存"""
         self._loaded_skills.clear()
 
+    def get_skill_description(self, skill_name: str) -> str:
+        """获取指定技能的描述信息
+
+        Args:
+            skill_name: 技能名称
+
+        Returns:
+            str: 技能描述（来自 skill.yaml 的 description 字段），如果找不到返回空字符串
+        """
+        if not self.skill_registry:
+            return ""
+
+        skill = self.skill_registry.get_skill(skill_name)
+        if skill:
+            return skill.description or ""
+        return ""
+
     def get_all_tool_definitions(self) -> List[Dict[str, Any]]:
         """
         获取所有工具定义
