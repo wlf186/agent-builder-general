@@ -26,7 +26,7 @@
 
 - [ ] **Step 1: 在 SkillTool 类中添加 `get_skill_description()` 方法**
 
-在 `src/skill_tool.py` 文件末尾的 `SkillTool` 类中添加新方法：
+找到 `SkillTool` 类中的 `clear_cache()` 方法（约第 548 行），在其**之后**添加新方法：
 
 ```python
 def get_skill_description(self, skill_name: str) -> str:
@@ -46,6 +46,8 @@ def get_skill_description(self, skill_name: str) -> str:
         return skill.description or ""
     return ""
 ```
+
+**注意**: 确保方法添加在 `SkillTool` 类内部，而不是文件末尾。
 
 - [ ] **Step 2: 验证语法正确**
 
@@ -112,48 +114,13 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ## Task 3: 移除 RAG 自动注入逻辑
 
 **Files:**
-- Modify: `src/agent_engine.py:1785-1816`
+- Modify: `src/agent_engine.py:1784-1816`
 
 - [ ] **Step 1: 定位并删除自动注入代码块**
 
-找到 `_run_with_tools()` 方法中约第 1785-1816 行的 RAG 自动注入逻辑：
+找到 `_run_with_tools()` 方法中约第 1784-1816 行的 RAG 自动注入逻辑（以 `# 【AC130-202603161542】RAG 知识库检索` 注释开始）：
 
-```python
-# 【AC130-202603161542】RAG 知识库检索
-# 【AC130-202603161918】调整为工具模式优先
-# ====================================================================
-# 如果配置了知识库但未绑定工具（兼容模式），自动注入检索上下文
-# 如果已绑定 rag_retrieve 工具，让 LLM 自主决定是否调用
-kb_context = ""
-if self.config.knowledge_bases and self._retrievers:
-    # 检查是否已绑定 RAG 工具
-    has_rag_tool = any(t.name == "rag_retrieve" for t in getattr(self, '_rag_tools', []))
-
-    if not has_rag_tool:
-        # 兼容模式：自动检索并注入上下文
-        kb_context = await self._retrieve_for_query(user_input, trace_id=langfuse_trace_id)
-
-    if kb_context:
-        retrieval_config = self.config.retrieval_config
-        if retrieval_config:
-            # 使用配置的提示词模板
-            kb_prompt = retrieval_config.prompt_template.format(
-                retrieved_chunks=kb_context,
-                user_query=user_input
-            )
-        else:
-            # 默认模板
-            kb_prompt = f"""
-## 知识库内容
-
-请基于以下知识库内容回答用户问题。如果知识库中没有相关信息，请明确告知。
-
-{kb_context}
-"""
-        system_prompt += kb_prompt
-```
-
-**完全删除上述代码块**。RAG 现在通过工具调用模式工作。
+**完全删除从 `# 【AC130-202603161542】RAG 知识库检索` 到 `system_prompt += kb_prompt` 的整块代码**。RAG 现在通过工具调用模式工作。
 
 - [ ] **Step 2: 验证语法正确**
 
@@ -175,6 +142,8 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `src/agent_engine.py` (`_execute_tool` 方法签名及调用点)
+
+**⚠️ 重要**: 这是破坏性变更，必须更新所有调用点，否则会运行时错误。
 
 - [ ] **Step 1: 修改 `_execute_tool()` 方法签名**
 
@@ -199,26 +168,31 @@ async def _execute_tool(
 ) -> Any:
 ```
 
-- [ ] **Step 2: 更新所有调用点**
+- [ ] **Step 2: 更新所有 7 个调用点**
 
-搜索所有 `_execute_tool(` 调用，添加 `trace_id=langfuse_trace_id` 参数：
+使用 `grep -n "_execute_tool(" src/agent_engine.py` 找到所有调用点，逐个添加 `trace_id` 参数：
 
-主要调用点约在：
-- 第 1076 行附近（`_process_tool_calls` 方法）
-- 第 1287 行附近
-- 第 1599 行附近
-- 第 2277 行附近
+| 调用点行号 | 所在方法 | 修改 |
+|-----------|---------|------|
+| ~907 | `_process_tool_calls` | 添加 `trace_id=langfuse_trace_id` |
+| ~1076 | `_process_tool_calls` | 添加 `trace_id=langfuse_trace_id` |
+| ~1287 | 其他方法 | 添加 `trace_id=None` (如无 langfuse_trace_id) |
+| ~1422 | 其他方法 | 添加 `trace_id=None` |
+| ~1434 | 其他方法 | 添加 `trace_id=None` |
+| ~1599 | 其他方法 | 添加 `trace_id=langfuse_trace_id` |
+| ~2277 | `_run_with_tools` | 添加 `trace_id=langfuse_trace_id` |
 
 示例修改：
 ```python
 # 修改前
 result = await self._execute_tool(tool_name, tool_args, input_file_ids)
 
-# 修改后
+# 修改后（如果有 langfuse_trace_id 变量）
 result = await self._execute_tool(tool_name, tool_args, input_file_ids, trace_id=langfuse_trace_id)
-```
 
-**注意**: 如果调用点没有 `langfuse_trace_id` 变量，传 `None` 即可。
+# 修改后（如果没有 langfuse_trace_id 变量）
+result = await self._execute_tool(tool_name, tool_args, input_file_ids, trace_id=None)
+```
 
 - [ ] **Step 3: 验证语法正确**
 
@@ -241,9 +215,11 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/agent_engine.py:946-982`
 
-- [ ] **Step 1: 重写 `rag_retrieve` 工具处理分支**
+**⚠️ 注意**: 这是**替换**现有的 `rag_retrieve` 处理分支，不是新增代码。
 
-找到 `_execute_tool()` 方法中 `if tool_name == "rag_retrieve":` 分支（约第 946 行），替换为带 Langfuse 追踪的版本：
+- [ ] **Step 1: 替换 `rag_retrieve` 工具处理分支**
+
+找到 `_execute_tool()` 方法中 `if tool_name == "rag_retrieve":` 分支（约第 946 行开始），**完全替换**为带 Langfuse 追踪的版本：
 
 ```python
 if tool_name == "rag_retrieve":
@@ -348,6 +324,8 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 - [ ] **Step 1: 修改 `rag.retrieve` Span output**
 
 找到 `_retrieve_for_query()` 方法中 `rag_retrieve_span_id` 相关的 `end_span` 调用（约第 708-716 行）：
+
+**注意**: `all_results` 中的 `SearchResult` 对象的 `.content` 属性可能为 `None`，代码中已处理 `r.content[:200] if r.content else ""`。
 
 ```python
 # 修改前
@@ -455,40 +433,14 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ## Task 8: 构建统一的工具上下文
 
 **Files:**
-- Modify: `src/agent_engine.py:1818-1851`
+- Modify: `src/agent_engine.py:1818-1871`
 
 - [ ] **Step 1: 重构工具描述构建逻辑**
 
-找到 `_run_with_tools()` 方法中构建工具描述的部分（约第 1818-1851 行），替换为统一构建逻辑：
+找到 `_run_with_tools()` 方法中 `# 构建工具描述` 注释开始的部分（约第 1818 行），**替换到 `# 构建技能加载规则和示例` 之前**的所有代码：
 
 ```python
-# 修改前
-# 构建工具描述
-tools_desc = ""
-tool_names = []
-
-if self.mcp_manager and self.mcp_manager.all_tools:
-    tools_list = []
-    for mcp_tool in self.mcp_manager.all_tools:
-        tools_list.append(f"- {mcp_tool.name}: {mcp_tool.description}")
-        tool_names.append(mcp_tool.name)
-    tools_desc = "\n".join(tools_list)
-
-# 添加 skill 工具（如果有启用的技能）
-if self.skill_tool and self.skill_tool.enabled_skills:
-    skill_tool_def = self.skill_tool.get_tool_definition()
-    tools_desc += f"\n- {skill_tool_def['name']}: {skill_tool_def['description'].split(chr(10))[0]}"
-    tool_names.append(SkillTool.TOOL_NAME)
-
-    # 添加 execute_skill 工具（如果有执行引擎且存在可执行技能）
-    execute_tool_def = self.skill_tool.get_execute_tool_definition()
-    if execute_tool_def:
-        tools_desc += f"\n- {execute_tool_def['name']}: {execute_tool_def['description'].split(chr(10))[0]}"
-        tool_names.append(SkillTool.EXECUTE_TOOL_NAME)
-
-# ... 后续的子 Agent 工具描述 ...
-
-# 修改后
+# 修改后（替换整块代码）
 # 构建统一的工具描述，所有工具一视同仁
 tools_context_parts = []
 
@@ -523,8 +475,19 @@ if self.config.knowledge_bases and self.kb_manager:
             f"{chr(10).join(kb_descriptions)}\n"
         )
 
+# 4. 子 Agent 工具
+sub_agents = self.get_sub_agent_names()
+if sub_agents:
+    for sub_agent in sub_agents:
+        tool_name = f"call_agent_{sub_agent.lower().replace('-', '_').replace(' ', '_')}"
+        tools_context_parts.append(
+            f"### {tool_name}\n调用子Agent '{sub_agent}'来处理特定任务\n"
+        )
+
 tools_context = "\n".join(tools_context_parts)
 ```
+
+**注意**: 替换后需要保留 `# 构建技能加载规则和示例` 及后续代码。
 
 - [ ] **Step 2: 验证语法正确**
 
@@ -549,18 +512,16 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 替换写死的工具规则为动态注入**
 
-找到 System Prompt 中 `## 🔴 强制规则：必须使用工具` 部分（约第 1873 行开始），替换为动态注入：
+找到 System Prompt 中 `## 🔴 强制规则：必须使用工具` 部分（约第 1873 行开始），**替换到 `messages = [SystemMessage(content=system_prompt)]` 之前**：
+
+**需要删除的内容**（约 70+ 行）：
+- `## 🔴 强制规则：必须使用工具`
+- 所有写死的工具使用规则
+- JSON 格式示例
+
+**替换为**：
 
 ```python
-# 修改前
-system_prompt += f"""
-
-## 🔴 强制规则：必须使用工具
-**重要：你没有任何内置计算能力！** 所有计算、获取笑话、加载技能等操作，**必须**通过调用工具完成。
-...
-"""
-
-# 修改后
 if tools_context:
     system_prompt += f"""
 
@@ -578,7 +539,10 @@ if tools_context:
 """
 ```
 
-**注意**: 保留后续的 `messages = [SystemMessage(content=system_prompt)]` 等代码不变。
+**注意**:
+- 保留 `messages = [SystemMessage(content=system_prompt)]` 及后续代码
+- 保留 `messages.append(HumanMessage(content=user_input))` 等消息构建代码
+- 保留 `full_response = ""` 及后续的循环逻辑
 
 - [ ] **Step 2: 验证语法正确**
 
