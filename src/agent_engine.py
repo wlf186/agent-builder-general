@@ -953,6 +953,16 @@ Returns:
             if not self._retrievers:
                 return "错误: 知识库检索器未初始化"
 
+            # 【Langfuse 追踪】创建 RAG 工具调用 Span
+            rag_tool_span_id = None
+            if is_langfuse_enabled() and trace_id:
+                rag_tool_span_id = langfuse_tracer.create_span(
+                    trace_id=trace_id,
+                    span_name="tool.rag_retrieve",
+                    span_type="TOOL",
+                    input={"query": query[:500], "top_k": top_k}
+                )
+
             try:
                 all_results = []
                 for kb_id, retriever in self._retrievers.items():
@@ -960,23 +970,52 @@ Returns:
                     all_results.extend(results)
 
                 if not all_results:
-                    return f"未找到与 '{query}' 相关的文档内容。请尝试其他关键词或告知用户该问题不在知识库范围内。"
+                    result = f"未找到与 '{query}' 相关的文档内容。请尝试其他关键词或告知用户该问题不在知识库范围内。"
+                else:
+                    # 按相似度排序，取 Top-K
+                    all_results.sort(key=lambda x: x.score, reverse=True)
+                    top_results = all_results[:top_k]
 
-                # 按相似度排序，取 Top-K
-                all_results.sort(key=lambda x: x.score, reverse=True)
-                top_results = all_results[:top_k]
+                    # 格式化结果
+                    formatted_parts = []
+                    for i, r in enumerate(top_results, 1):
+                        formatted_parts.append(
+                            f"[{i}] {r.content}\n"
+                            f"    来源: {r.filename} (相关度: {r.score:.2%})"
+                        )
 
-                # 格式化结果
-                formatted_parts = []
-                for i, r in enumerate(top_results, 1):
-                    formatted_parts.append(
-                        f"[{i}] {r.content}\n"
-                        f"    来源: {r.filename} (相关度: {r.score:.2%})"
+                    result = "检索到以下相关内容：\n\n" + "\n".join(formatted_parts)
+
+                # 【Langfuse 追踪】结束 Span
+                if rag_tool_span_id and is_langfuse_enabled():
+                    langfuse_tracer.end_span(
+                        trace_id=trace_id,
+                        span_id=rag_tool_span_id,
+                        output={
+                            "result_length": len(result),
+                            "results_count": len(all_results),
+                            "results": [
+                                {
+                                    "filename": r.filename,
+                                    "chunk_index": r.chunk_index,
+                                    "score": round(r.score, 4)
+                                }
+                                for r in (top_results if all_results else [])
+                            ]
+                        }
                     )
 
-                return "检索到以下相关内容：\n\n" + "\n".join(formatted_parts)
+                return result
 
             except Exception as e:
+                # 【Langfuse 追踪】错误处理
+                if rag_tool_span_id and is_langfuse_enabled():
+                    langfuse_tracer.end_span(
+                        trace_id=trace_id,
+                        span_id=rag_tool_span_id,
+                        output={"error": str(e)},
+                        status="error"
+                    )
                 return f"检索失败: {str(e)}"
 
         # ====================================================================
