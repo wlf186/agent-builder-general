@@ -28,20 +28,24 @@
 
 **文件**: `src/agent_engine.py`
 
-**修改点**:
-- 移除 `_bind_tools_to_llm()` 中禁用 RAG 工具的逻辑（第 221-226 行）
-- 将 `_rag_tools` 加入 `tools_to_bind` 列表
+**修改点**（约在 `_bind_tools_to_llm()` 方法第 221-227 行）:
+- 取消注释 `_create_rag_tools()` 调用
+- 取消注释 `tools_to_bind.extend()` 逻辑
+- **删除** `self._rag_tools = []` 这一行（这是关键！）
 
 ```python
-# 修改前 (第 221-226 行)
+# 修改前
 # 4. 【AC130-202603161918】RAG 知识库检索工具
 # DISABLED: 改为自动注入模式，确保 RAG 一定被使用
+# self._rag_tools = self._create_rag_tools()
 # if self._rag_tools:
 #     tools_to_bind.extend(self._rag_tools)
 #     print(f"[DEBUG] 绑定 {len(self._rag_tools)} 个RAG检索工具")
+self._rag_tools = []  # ⚠️ 这一行必须删除！
 
 # 修改后
 # 4. 【AC130-202603161918】RAG 知识库检索工具
+self._rag_tools = self._create_rag_tools()
 if self._rag_tools:
     tools_to_bind.extend(self._rag_tools)
     print(f"[DEBUG] 绑定 {len(self._rag_tools)} 个 RAG 检索工具")
@@ -51,12 +55,12 @@ if self._rag_tools:
 
 **文件**: `src/agent_engine.py`
 
-**修改点**:
-- 修改 `_run_with_tools()` 中的 RAG 处理逻辑（第 1785-1816 行）
-- 移除自动注入，改为仅在工具调用时检索
+**修改点**（约在 `_run_with_tools()` 方法中）:
+- 删除整个 `kb_context` 相关的自动注入逻辑
+- RAG 检索改为仅通过 `rag_retrieve` 工具调用触发
 
 ```python
-# 修改前 (第 1785-1816 行)
+# 修改前
 kb_context = ""
 if self.config.knowledge_bases and self._retrievers:
     has_rag_tool = any(t.name == "rag_retrieve" for t in getattr(self, '_rag_tools', []))
@@ -64,25 +68,92 @@ if self.config.knowledge_bases and self._retrievers:
         # 兼容模式：自动检索并注入上下文
         kb_context = await self._retrieve_for_query(user_input, trace_id=langfuse_trace_id)
     if kb_context:
-        # ... 注入到 system_prompt
+        # ... 注入到 system_prompt 的逻辑
 
 # 修改后
-# RAG 改为工具调用模式，不再自动注入
-# 如果智能体没有知识库配置，跳过
-# 如果有知识库配置，rag_retrieve 工具已在 bind_tools 中，LLM 会按需调用
+# 完全移除上述代码块，RAG 改为工具调用模式
+# rag_retrieve 工具已在 bind_tools 中，LLM 会按需调用
 ```
 
-#### 1.3 工具调用处理
+#### 1.3 工具调用处理（添加 Langfuse 追踪）
 
 **文件**: `src/agent_engine.py`
 
-**修改点**:
-- 增强 `_execute_tool()` 中 `rag_retrieve` 的 Langfuse 追踪（第 943-982 行）
+**修改点**（约在 `_execute_tool()` 方法中，`rag_retrieve` 处理分支）:
+- 在工具调用前后添加 Langfuse Span 追踪
 
 ```python
-# 当前实现 (第 943-982 行) 已经正确处理 rag_retrieve 工具调用
-# 需要增加 Langfuse 追踪，与 _retrieve_for_query 类似
+# 修改前（约第 946 行）
+if tool_name == "rag_retrieve":
+    query = tool_args.get("query", "")
+    top_k = tool_args.get("top_k", 3)
+    # ... 直接执行检索
+
+# 修改后
+if tool_name == "rag_retrieve":
+    query = tool_args.get("query", "")
+    top_k = tool_args.get("top_k", 3)
+    top_k = max(1, min(5, int(top_k))) if isinstance(top_k, (int, str)) else 3
+
+    if not query:
+        return "错误: 检索查询不能为空"
+
+    if not self._retrievers:
+        return "错误: 知识库检索器未初始化"
+
+    # 【Langfuse 追踪】创建 RAG 工具调用 Span
+    rag_tool_span_id = None
+    if is_langfuse_enabled() and trace_id:
+        rag_tool_span_id = langfuse_tracer.create_span(
+            trace_id=trace_id,
+            span_name="tool.rag_retrieve",
+            span_type="TOOL",
+            input={"query": query[:500], "top_k": top_k}
+        )
+
+    try:
+        all_results = []
+        for kb_id, retriever in self._retrievers.items():
+            results = retriever.search(query, top_k=top_k)
+            all_results.extend(results)
+
+        if not all_results:
+            result = f"未找到与 '{query}' 相关的文档内容。"
+        else:
+            all_results.sort(key=lambda x: x.score, reverse=True)
+            top_results = all_results[:top_k]
+
+            formatted_parts = []
+            for i, r in enumerate(top_results, 1):
+                formatted_parts.append(
+                    f"[{i}] {r.content}\n"
+                    f"    来源: {r.filename} (相关度: {r.score:.2%})"
+                )
+            result = "检索到以下相关内容：\n\n" + "\n".join(formatted_parts)
+
+        # 【Langfuse 追踪】结束 Span
+        if rag_tool_span_id and is_langfuse_enabled():
+            langfuse_tracer.end_span(
+                trace_id=trace_id,
+                span_id=rag_tool_span_id,
+                output={"result_length": len(result), "results_count": len(all_results)}
+            )
+
+        return result
+
+    except Exception as e:
+        # 【Langfuse 追踪】错误处理
+        if rag_tool_span_id and is_langfuse_enabled():
+            langfuse_tracer.end_span(
+                trace_id=trace_id,
+                span_id=rag_tool_span_id,
+                output={"error": str(e)},
+                status="error"
+            )
+        return f"检索失败: {str(e)}"
 ```
+
+**注意**: `_execute_tool()` 方法需要额外接收 `trace_id` 参数以支持追踪。
 
 ---
 
@@ -146,14 +217,39 @@ output={
 
 ### 3. 工具描述动态注入
 
-#### 3.1 构建统一的工具上下文
+#### 3.1 添加 `get_skill_description()` 方法
+
+**文件**: `src/skill_tool.py`
+
+**新增方法**: 获取单个 Skill 的描述信息
+
+```python
+def get_skill_description(self, skill_name: str) -> str:
+    """获取指定技能的描述信息
+
+    Args:
+        skill_name: 技能名称
+
+    Returns:
+        str: 技能描述（来自 skill.yaml 的 description 字段），如果找不到返回空字符串
+    """
+    if not self.skill_registry:
+        return ""
+
+    skill = self.skill_registry.get_skill(skill_name)
+    if skill:
+        return skill.description or ""
+    return ""
+```
+
+#### 3.2 构建统一的工具上下文
 
 **文件**: `src/agent_engine.py`
 
-**修改点**: `_run_with_tools()` 方法（第 1818-1851 行）
+**修改点**: `_run_with_tools()` 方法中构建工具描述的部分
 
 ```python
-# 修改前 (第 1818-1851 行)
+# 修改前
 # 构建工具描述
 tools_desc = ""
 tool_names = []
@@ -165,7 +261,7 @@ if self.mcp_manager and self.mcp_manager.all_tools:
         tool_names.append(mcp_tool.name)
     tools_desc = "\n".join(tools_list)
 
-# 添加 skill 工具
+# 添加 skill 工具（写死的规则）
 if self.skill_tool and self.skill_tool.enabled_skills:
     # ...
 
@@ -244,20 +340,21 @@ if tools_context:
 
 ### Phase 1: RAG 工具化
 
-1. [ ] 启用 `_bind_tools_to_llm()` 中的 RAG 工具绑定
+1. [ ] 启用 `_bind_tools_to_llm()` 中的 RAG 工具绑定（取消注释 + 删除 `self._rag_tools = []`）
 2. [ ] 移除 `_run_with_tools()` 中的自动注入逻辑
-3. [ ] 为 `rag_retrieve` 工具调用添加 Langfuse 追踪
+3. [ ] 为 `_execute_tool()` 中的 `rag_retrieve` 添加 Langfuse 追踪
+4. [ ] 为 `_execute_tool()` 方法添加 `trace_id` 参数
 
 ### Phase 2: Span 详细化
 
-4. [ ] 增强 `rag.retrieve` Span output（添加 results 详情）
-5. [ ] 增强 `rag.rerank` Span output（添加 results 详情）
+5. [ ] 增强 `rag.retrieve` Span output（添加 results 详情）
+6. [ ] 增强 `rag.rerank` Span output（添加 results 详情）
 
 ### Phase 3: 工具描述动态注入
 
-6. [ ] 构建统一的工具上下文构建函数
-7. [ ] 修改 System Prompt 注入逻辑
-8. [ ] 添加 `get_skill_description()` 方法（如果不存在）
+7. [ ] 在 `skill_tool.py` 中添加 `get_skill_description()` 方法
+8. [ ] 构建统一的工具上下文构建逻辑
+9. [ ] 修改 System Prompt 注入逻辑
 
 ---
 
@@ -283,4 +380,5 @@ if tools_context:
 
 | 文件 | 变更类型 | 说明 |
 |------|----------|------|
-| `src/agent_engine.py` | 修改 | 启用 RAG 工具、移除自动注入、增强 Span output、动态注入工具描述 |
+| `src/agent_engine.py` | 修改 | 启用 RAG 工具、移除自动注入、增强 Span output、动态注入工具描述、添加 trace_id 参数 |
+| `src/skill_tool.py` | 修改 | 添加 `get_skill_description()` 方法 |
