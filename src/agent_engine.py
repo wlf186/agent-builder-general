@@ -219,12 +219,10 @@ class AgentEngine:
             print(f"[DEBUG] 绑定 {len(sub_agent_tools)} 个子Agent工具")
 
         # 4. 【AC130-202603161918】RAG 知识库检索工具
-        # DISABLED: 改为自动注入模式，确保 RAG 一定被使用
-        # self._rag_tools = self._create_rag_tools()
-        # if self._rag_tools:
-        #     tools_to_bind.extend(self._rag_tools)
-        #     print(f"[DEBUG] 绑定 {len(self._rag_tools)} 个RAG检索工具")
-        self._rag_tools = []  # Empty list to prevent has_rag_tool check from failing
+        self._rag_tools = self._create_rag_tools()
+        if self._rag_tools:
+            tools_to_bind.extend(self._rag_tools)
+            print(f"[DEBUG] 绑定 {len(self._rag_tools)} 个 RAG 检索工具")
 
         if not tools_to_bind:
             print(f"[DEBUG] 没有工具需要绑定")
@@ -649,15 +647,18 @@ Returns:
             import traceback
             traceback.print_exc()
 
-    async def _retrieve_for_query(self, query: str) -> str:
+    async def _retrieve_for_query(self, query: str, trace_id: str = None) -> str:
         """为查询检索知识库内容
 
         Args:
             query: 用户查询
+            trace_id: Langfuse 追踪 ID（可选）
 
         Returns:
             str: 格式化的检索结果，如果无结果返回空字符串
         """
+        langfuse_tracer = get_langfuse_tracer()
+
         if not self.config.knowledge_bases or not self._retrievers:
             self._last_retrieval_sources = []
             return ""
@@ -670,6 +671,23 @@ Returns:
             config = RetrievalConfig()  # 使用默认值: top_k=3, score_threshold=0.6
 
         all_results = []
+        rag_retrieve_span_id = None
+
+        # ====================================================================
+        # 【Langfuse 追踪】RAG 检索阶段 (Embedding + Vector Search)
+        # ====================================================================
+        if is_langfuse_enabled() and trace_id:
+            rag_retrieve_span_id = langfuse_tracer.create_span(
+                trace_id=trace_id,
+                span_name="rag.retrieve",
+                span_type="EMBEDDING",
+                input={
+                    "query": query[:500] if query else "",
+                    "knowledge_bases": self.config.knowledge_bases,
+                    "top_k": config.top_k,
+                    "score_threshold": config.score_threshold
+                }
+            )
 
         # 从所有挂载的知识库中检索
         for kb_id in self.config.knowledge_bases:
@@ -685,13 +703,48 @@ Returns:
                 except Exception as e:
                     print(f"[ERROR] 检索失败 (kb_id={kb_id}): {e}")
 
+        # 结束 RAG 检索阶段
+        if rag_retrieve_span_id and is_langfuse_enabled():
+            langfuse_tracer.end_span(
+                trace_id=trace_id,
+                span_id=rag_retrieve_span_id,
+                output={
+                    "raw_results_count": len(all_results)
+                }
+            )
+
         if not all_results:
             self._last_retrieval_sources = []
             return ""
 
+        # ====================================================================
+        # 【Langfuse 追踪】RAG 重排阶段 (Sorting + Filtering)
+        # ====================================================================
+        rag_rerank_span_id = None
+        if is_langfuse_enabled() and trace_id:
+            rag_rerank_span_id = langfuse_tracer.create_span(
+                trace_id=trace_id,
+                span_name="rag.rerank",
+                span_type="DEFAULT",
+                input={
+                    "results_count": len(all_results)
+                }
+            )
+
         # 按相似度排序，取 Top-K
         all_results.sort(key=lambda x: x.score, reverse=True)
         top_results = all_results[:config.top_k]
+
+        # 结束 RAG 重排阶段
+        if rag_rerank_span_id and is_langfuse_enabled():
+            langfuse_tracer.end_span(
+                trace_id=trace_id,
+                span_id=rag_rerank_span_id,
+                output={
+                    "top_results_count": len(top_results),
+                    "top_scores": [round(r.score, 2) for r in top_results]
+                }
+            )
 
         # Track sources for citation
         self._last_retrieval_sources = [
@@ -703,8 +756,35 @@ Returns:
             for r in top_results
         ]
 
+        # ====================================================================
+        # 【Langfuse 追踪】RAG 格式化阶段 (Context Generation)
+        # ====================================================================
+        rag_format_span_id = None
+        if is_langfuse_enabled() and trace_id:
+            rag_format_span_id = langfuse_tracer.create_span(
+                trace_id=trace_id,
+                span_name="rag.format",
+                span_type="DEFAULT",
+                input={
+                    "results_count": len(top_results)
+                }
+            )
+
         # 格式化为上下文
-        return self._format_retrieved_context(top_results)
+        context = self._format_retrieved_context(top_results)
+
+        # 结束 RAG 格式化阶段
+        if rag_format_span_id and is_langfuse_enabled():
+            langfuse_tracer.end_span(
+                trace_id=trace_id,
+                span_id=rag_format_span_id,
+                output={
+                    "context_length": len(context),
+                    "context_preview": context[:500] if context else ""
+                }
+            )
+
+        return context
 
     def _format_retrieved_context(self, results: List[Any]) -> str:
         """格式化检索结果为上下文字符串
@@ -1587,7 +1667,7 @@ BEST: 编号"""
         # 【AC130-202603161542】RAG 知识库检索
         # ====================================================================
         # 检索知识库并注入系统消息
-        kb_context = await self._retrieve_for_query(user_input)
+        kb_context = await self._retrieve_for_query(user_input, trace_id=None)
         if kb_context:
             retrieval_config = self.config.retrieval_config
             if retrieval_config:
@@ -1712,7 +1792,7 @@ BEST: 编号"""
 
             if not has_rag_tool:
                 # 兼容模式：自动检索并注入上下文
-                kb_context = await self._retrieve_for_query(user_input)
+                kb_context = await self._retrieve_for_query(user_input, trace_id=langfuse_trace_id)
 
             if kb_context:
                 retrieval_config = self.config.retrieval_config
@@ -1938,11 +2018,21 @@ BEST: 编号"""
             # ====================================================================
             llm_span_id = None
             if is_langfuse_enabled():
+                # 获取模型服务名称（新版 model_service 优先，兼容旧版 llm_provider）
+                model_service_name = self.config.model_service or (
+                    self.config.llm_provider.value if self.config.llm_provider else 'unknown'
+                )
+                # 准备输入内容（截断前1000字符）
+                input_preview = str(messages)[:1000] if messages else ""
                 llm_span_id = langfuse_tracer.create_span(
                     trace_id=langfuse_trace_id,
-                    span_name=f"llm.{self.config.llm_provider.value if self.config.llm_provider else 'unknown'}",
+                    span_name=f"llm.{model_service_name}",
                     span_type="LLM",
-                    input={"messages_count": len(messages), "iteration": iteration}
+                    input={
+                        "messages_count": len(messages),
+                        "iteration": iteration,
+                        "messages_preview": input_preview
+                    }
                 )
 
             # ============================================================================
@@ -2017,7 +2107,10 @@ BEST: 编号"""
                 langfuse_tracer.end_span(
                     trace_id=langfuse_trace_id,
                     span_id=llm_span_id,
-                    output={"response_length": len(response_content)}
+                    output={
+                        "response_length": len(response_content),
+                        "response_preview": response_content[:1000] if response_content else ""
+                    }
                 )
 
             # 如果在缓冲模式，检查是否有工具调用
