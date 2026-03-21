@@ -709,7 +709,16 @@ Returns:
                 trace_id=trace_id,
                 span_id=rag_retrieve_span_id,
                 output={
-                    "raw_results_count": len(all_results)
+                    "raw_results_count": len(all_results),
+                    "results": [
+                        {
+                            "filename": r.filename,
+                            "chunk_index": r.chunk_index,
+                            "score": round(r.score, 4),
+                            "content_preview": r.content[:200] if r.content else ""
+                        }
+                        for r in all_results[:10]  # 最多显示前 10 个
+                    ]
                 }
             )
 
