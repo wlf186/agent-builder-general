@@ -1663,24 +1663,6 @@ BEST: 编号"""
 
         messages = []
 
-        # ====================================================================
-        # 【AC130-202603161542】RAG 知识库检索
-        # ====================================================================
-        # 检索知识库并注入系统消息
-        kb_context = await self._retrieve_for_query(user_input, trace_id=None)
-        if kb_context:
-            retrieval_config = self.config.retrieval_config
-            if retrieval_config:
-                kb_system_msg = retrieval_config.prompt_template.format(
-                    retrieved_chunks=kb_context,
-                    user_query=user_input
-                )
-            else:
-                kb_system_msg = f"""请基于以下知识库内容回答用户问题。如果知识库中没有相关信息，请明确告知。
-
-{kb_context}"""
-            messages.append(SystemMessage(content=kb_system_msg))
-
         if history:
             for msg in history:
                 if msg.get("role") == "user":
@@ -1778,40 +1760,6 @@ BEST: 编号"""
         if file_context:
             system_prompt += file_context
             system_prompt += "\n\n请优先处理用户上传的文件内容。"
-
-        # ====================================================================
-        # 【AC130-202603161542】RAG 知识库检索
-        # 【AC130-202603161918】调整为工具模式优先
-        # ====================================================================
-        # 如果配置了知识库但未绑定工具（兼容模式），自动注入检索上下文
-        # 如果已绑定 rag_retrieve 工具，让 LLM 自主决定是否调用
-        kb_context = ""
-        if self.config.knowledge_bases and self._retrievers:
-            # 检查是否已绑定 RAG 工具
-            has_rag_tool = any(t.name == "rag_retrieve" for t in getattr(self, '_rag_tools', []))
-
-            if not has_rag_tool:
-                # 兼容模式：自动检索并注入上下文
-                kb_context = await self._retrieve_for_query(user_input, trace_id=langfuse_trace_id)
-
-            if kb_context:
-                retrieval_config = self.config.retrieval_config
-                if retrieval_config:
-                    # 使用配置的提示词模板
-                    kb_prompt = retrieval_config.prompt_template.format(
-                        retrieved_chunks=kb_context,
-                        user_query=user_input
-                    )
-                else:
-                    # 默认模板
-                    kb_prompt = f"""
-## 知识库内容
-
-请基于以下知识库内容回答用户问题。如果知识库中没有相关信息，请明确告知。
-
-{kb_context}
-"""
-                system_prompt += kb_prompt
 
         # 构建工具描述
         tools_desc = ""
