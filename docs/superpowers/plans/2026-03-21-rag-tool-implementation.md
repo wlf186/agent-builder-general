@@ -147,51 +147,39 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 修改 `_execute_tool()` 方法签名**
 
-找到 `_execute_tool()` 方法定义（约第 850 行），添加 `trace_id` 参数：
+找到 `_execute_tool()` 方法定义（第 907 行），添加 `trace_id` 参数：
 
 ```python
 # 修改前
-async def _execute_tool(
-    self,
-    tool_name: str,
-    tool_args: Dict[str, Any],
-    input_file_ids: Optional[List[str]] = None
-) -> Any:
+async def _execute_tool(self, tool_name: str, tool_args: Dict) -> str:
 
 # 修改后
-async def _execute_tool(
-    self,
-    tool_name: str,
-    tool_args: Dict[str, Any],
-    input_file_ids: Optional[List[str]] = None,
-    trace_id: Optional[str] = None
-) -> Any:
+async def _execute_tool(self, tool_name: str, tool_args: Dict, trace_id: Optional[str] = None) -> str:
 ```
 
-- [ ] **Step 2: 更新所有 7 个调用点**
+- [ ] **Step 2: 更新所有 6 个调用点**
 
 使用 `grep -n "_execute_tool(" src/agent_engine.py` 找到所有调用点，逐个添加 `trace_id` 参数：
 
 | 调用点行号 | 所在方法 | 修改 |
 |-----------|---------|------|
-| ~907 | `_process_tool_calls` | 添加 `trace_id=langfuse_trace_id` |
-| ~1076 | `_process_tool_calls` | 添加 `trace_id=langfuse_trace_id` |
-| ~1287 | 其他方法 | 添加 `trace_id=None` (如无 langfuse_trace_id) |
-| ~1422 | 其他方法 | 添加 `trace_id=None` |
-| ~1434 | 其他方法 | 添加 `trace_id=None` |
-| ~1599 | 其他方法 | 添加 `trace_id=langfuse_trace_id` |
-| ~2277 | `_run_with_tools` | 添加 `trace_id=langfuse_trace_id` |
+| 1076 | `_process_tool_calls` | 添加 `trace_id=langfuse_trace_id` |
+| 1287 | 其他方法 | 添加 `trace_id=None` (如无 langfuse_trace_id) |
+| 1422 | 其他方法 | 添加 `trace_id=None` |
+| 1434 | 其他方法 | 添加 `trace_id=None` |
+| 1599 | 其他方法 | 添加 `trace_id=langfuse_trace_id` |
+| 2277 | `_run_with_tools` | 添加 `trace_id=langfuse_trace_id` |
 
 示例修改：
 ```python
 # 修改前
-result = await self._execute_tool(tool_name, tool_args, input_file_ids)
+result = await self._execute_tool(tool_name, tool_args)
 
 # 修改后（如果有 langfuse_trace_id 变量）
-result = await self._execute_tool(tool_name, tool_args, input_file_ids, trace_id=langfuse_trace_id)
+result = await self._execute_tool(tool_name, tool_args, trace_id=langfuse_trace_id)
 
 # 修改后（如果没有 langfuse_trace_id 变量）
-result = await self._execute_tool(tool_name, tool_args, input_file_ids, trace_id=None)
+result = await self._execute_tool(tool_name, tool_args, trace_id=None)
 ```
 
 - [ ] **Step 3: 验证语法正确**
@@ -514,7 +502,12 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 找到 System Prompt 中 `## 🔴 强制规则：必须使用工具` 部分（约第 1873 行开始），**替换到 `messages = [SystemMessage(content=system_prompt)]` 之前**：
 
-**需要删除的内容**（约 70+ 行）：
+**⚠️ 重要：保留 `sub_agent_example` 变量**
+- `sub_agent_example` 变量定义在第 1861-1870 行（在要替换的代码块之前）
+- 该变量在替换代码块末尾通过 `{sub_agent_example}` 引用
+- **不要删除或修改 `sub_agent_example` 变量的定义代码**
+
+**需要删除的内容**（约第 1873-1954 行）：
 - `## 🔴 强制规则：必须使用工具`
 - 所有写死的工具使用规则
 - JSON 格式示例
@@ -536,10 +529,12 @@ if tools_context:
 3. 如果需要计算、查询外部数据等，使用相应的 MCP 工具
 4. 如果需要处理特定格式的文件（PDF、DOCX 等），先加载对应的 Skill
 5. 调用工具时使用 JSON 格式
+{sub_agent_example}
 """
 ```
 
 **注意**:
+- 保留 `sub_agent_example` 变量定义（第 1861-1870 行）
 - 保留 `messages = [SystemMessage(content=system_prompt)]` 及后续代码
 - 保留 `messages.append(HumanMessage(content=user_input))` 等消息构建代码
 - 保留 `full_response = ""` 及后续的循环逻辑

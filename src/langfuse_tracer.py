@@ -277,12 +277,13 @@ class LangfuseTracer:
             span_id = f"{trace_id}-{span_name}-{int(time.time() * 1000)}"
 
             # 立即创建 span 对象
+            # 注意: start_time 使用 Unix 时间戳，由 Langfuse SDK 内部转换为 datetime
+            # 不使用 datetime.utcnow() 避免时区问题
             span = trace.span(
                 id=span_id,
                 name=span_name,
                 input=input or {},
                 metadata=metadata or {},
-                start_time=start_time or datetime.utcnow(),
             )
 
             # 存储引用
