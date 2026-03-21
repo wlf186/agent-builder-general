@@ -1816,40 +1816,50 @@ BEST: 编号"""
             system_prompt += file_context
             system_prompt += "\n\n请优先处理用户上传的文件内容。"
 
-        # 构建工具描述
-        tools_desc = ""
-        tool_names = []
+        # 构建统一的工具描述，所有工具一视同仁
+        tools_context_parts = []
 
+        # 1. MCP 工具
         if self.mcp_manager and self.mcp_manager.all_tools:
-            tools_list = []
             for mcp_tool in self.mcp_manager.all_tools:
-                tools_list.append(f"- {mcp_tool.name}: {mcp_tool.description}")
-                tool_names.append(mcp_tool.name)
+                tools_context_parts.append(
+                    f"### {mcp_tool.name}\n{mcp_tool.description}\n"
+                )
 
-            tools_desc = "\n".join(tools_list)
-
-        # 添加 skill 工具（如果有启用的技能）
+        # 2. Skill 工具
         if self.skill_tool and self.skill_tool.enabled_skills:
-            skill_tool_def = self.skill_tool.get_tool_definition()
-            tools_desc += f"\n- {skill_tool_def['name']}: {skill_tool_def['description'].split(chr(10))[0]}"
-            tool_names.append(SkillTool.TOOL_NAME)
+            for skill_name in self.skill_tool.enabled_skills:
+                skill_desc = self.skill_tool.get_skill_description(skill_name)
+                tools_context_parts.append(
+                    f"### load_skill ({skill_name})\n{skill_desc}\n"
+                )
 
+        # 3. RAG 工具（如果配置了知识库）
+        if self.config.knowledge_bases and self.kb_manager:
+            kb_descriptions = []
+            for kb_id in self.config.knowledge_bases:
+                kb = self.kb_manager.get_kb(kb_id)
+                if kb:
+                    kb_descriptions.append(f"  - {kb.name}: {kb.description or '无描述'}")
 
-            # 添加 execute_skill 工具（如果有执行引擎且存在可执行技能）
-            execute_tool_def = self.skill_tool.get_execute_tool_definition()
-            if execute_tool_def:
-                tools_desc += f"\n- {execute_tool_def['name']}: {execute_tool_def['description'].split(chr(10))[0]}"
-                tool_names.append(SkillTool.EXECUTE_TOOL_NAME)
+            if kb_descriptions:
+                tools_context_parts.append(
+                    f"### rag_retrieve\n"
+                    f"从知识库检索相关文档内容。\n"
+                    f"可用知识库：\n"
+                    f"{chr(10).join(kb_descriptions)}\n"
+                )
 
-        # ====================================================================
-        # 【AC130-202603142210】添加子Agent工具描述
-        # ====================================================================
+        # 4. 子 Agent 工具
         sub_agents = self.get_sub_agent_names()
         if sub_agents:
             for sub_agent in sub_agents:
                 tool_name = f"call_agent_{sub_agent.lower().replace('-', '_').replace(' ', '_')}"
-                tools_desc += f"\n- {tool_name}: 调用子Agent '{sub_agent}'来处理特定任务"
-                tool_names.append(tool_name)
+                tools_context_parts.append(
+                    f"### {tool_name}\n调用子Agent '{sub_agent}'来处理特定任务\n"
+                )
+
+        tools_context = "\n".join(tools_context_parts)
 
         # 构建技能加载规则和示例
         if self.skill_tool and self.skill_tool.enabled_skills:
