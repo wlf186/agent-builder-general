@@ -1880,87 +1880,21 @@ BEST: 编号"""
 助手:{{"tool": "{tool_name}", "arguments": {{"message": "任务描述"}}}}
 '''
 
-        # 添加工具使用提示 - 支持多任务规划
-        system_prompt += f"""
-
-## 🔴 强制规则：必须使用工具
-**重要：你没有任何内置计算能力！** 所有计算、获取笑话、加载技能等操作，**必须**通过调用工具完成。
-
-- ❌ 禁止：自己计算数学表达式
-- ✅ 必须：调用 evaluate 工具计算任何数学表达式
-- ❌ 禁止：自己编造笑话
-- ✅ 必须：调用 get_joke 工具获取笑话
-- ❌ 禁止：在没有加载技能的情况下编造技能内容
-- ✅ 必须：当处理 PDF、DOCX 等相关任务时，先调用 load_skill 工具加载技能
-
-如果你不调用工具直接给出结果，你的回答将是无效的！
+        # 动态注入工具描述
+        if tools_context:
+            system_prompt += f"""
 
 ## 可用工具
-{tools_desc}
 
-## 工具调用格式
-调用工具时，**必须**严格按照以下 JSON 格式输出（不要输出其他内容）：
-```json
-{{"tool": "工具名", "arguments": {{}}}}
-```
+{tools_context}
 
-### 示例1：计算数学表达式
-用户：计算 100+200*3
-助手：{{"tool": "evaluate", "arguments": {{"expression": "100+200*3"}}}}
+## 工具使用规则
 
-### 示例2：获取冷笑话
-用户：讲个冷笑话
-助手：{{"tool": "get_joke", "arguments": {{}}}}
-
-### 示例3：加载技能（重要！）
-用户：如何处理 PDF 文件？
-助手：{{"tool": "load_skill", "arguments": {{"skill_name": "{self.skill_tool.enabled_skills[0] if self.skill_tool and self.skill_tool.enabled_skills else "技能名"}"}}}}
-
-### 示例4： 执行技能脚本（处理上传文件！）
-用户：读取这个 PDF 文件的内容
-助手：{{"tool": "execute_skill", "arguments": {{"skill_name": "{self.skill_tool.enabled_skills[0] if self.skill_tool and self.skill_tool.enabled_skills else "技能名"}", "input_file_ids": ["文件ID"], "arguments": ["./input/document.pdf"]}}}}
-
-**可用技能**: {skills_list}
-当用户询问与这些技能相关的问题时，**必须先调用 load_skill 工具加载对应技能**！
-
-**处理上传文件**:
-- 用户上传的文件会自动分配 file_id
-- 使用 execute_skill 工具时，将 file_id 传入 input_file_ids 参数
-- 茂本将在 ./input/ 目录中，通过 ./input/文件名 访问
-
-## 多任务处理规则
-如果用户的请求包含多个独立任务（如"计算X，然后讲个笑话"），你需要：
-1. **分析任务**：识别所有子任务
-2. **调用工具**：按顺序调用每个任务所需的工具
-   - 对于计算任务：优先使用 `evaluate` 工具，它可以计算复杂表达式
-   - 对于技能相关任务：先使用 `load_skill` 工具加载技能
-   - 对于其他任务：使用对应的工具
-3. **每次只调用一个工具**，等待结果后再调用下一个
-4. **汇总输出**：所有工具调用完成后，使用 Markdown 格式分段展示结果
-
-## 最终输出格式
-使用 Markdown 格式，结构如下：
-```
-# 标题1
-结果内容（可以使用 **加粗**、> 引用等格式）
-
-# 标题2
-结果内容
-```
-
-**重要示例**：
-如果用户问："如何处理 PDF 文件？"
-1. 先调用 load_skill 工具加载 PDF 技能
-2. 根据技能内容给出专业回答
-
-**规则**：
-1. 如果用户请求与任何工具功能相关，必须先调用工具
-2. 优先使用 `evaluate` 工具处理所有数学计算
-3. 处理 PDF、DOCX 等相关任务时，**必须先调用 load_skill 加载技能**
-4. 每次只输出一个工具调用 JSON，等待工具返回结果
-5. 收到结果后，判断是否需要调用更多工具
-6. 所有工具调用完成后，使用 Markdown 格式（# 标题、**加粗**等）分段回答
-7. 不要编造答案，始终基于工具返回的结果回答
+1. 根据用户问题选择合适的工具
+2. 如果问题涉及内部文档、公司制度等，使用 rag_retrieve 检索知识库
+3. 如果需要计算、查询外部数据等，使用相应的 MCP 工具
+4. 如果需要处理特定格式的文件（PDF、DOCX 等），先加载对应的 Skill
+5. 调用工具时使用 JSON 格式
 {sub_agent_example}
 """
 
