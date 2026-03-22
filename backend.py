@@ -906,7 +906,10 @@ async def chat_stream(name: str, req: ChatRequest):
             # 【AC130-202603150000】增强异常处理 - 捕获 LLM 调用异常
             # ============================================================================
             try:
-                async for event in instance.chat_stream(req.message, req.history, file_context, conversation_id=req.conversation_id):
+                # Generate session_id for Langfuse (group traces by conversation)
+                langfuse_session_id = req.conversation_id or f"anon-{uuid.uuid4().hex[:8]}"
+
+                async for event in instance.chat_stream(req.message, req.history, file_context, conversation_id=langfuse_session_id):
                     # 记录 SSE 事件类型（用于调试）
                     event_type = event.get('type', 'unknown')
                     logger.log_sse_event(event_type)
