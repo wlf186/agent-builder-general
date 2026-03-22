@@ -660,7 +660,8 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
         body: JSON.stringify({
           message: userContent,
           history: historyMessages,
-          file_ids: allFileIds  // 使用合并后的文件ID列表
+          file_ids: allFileIds,
+          conversation_id: activeConversationId || null
         }),
         signal: abortController.signal,
       });
