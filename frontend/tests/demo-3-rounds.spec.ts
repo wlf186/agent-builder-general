@@ -21,6 +21,11 @@ test('演示: 3 轮对话（CoinGecko + cold-jokes + Calculator）', async ({ pa
   // ========== 初始化 ==========
   await page.goto('http://localhost:20880');
   await page.waitForLoadState('networkidle');
+
+  // 修复 X11 远程投屏渲染问题：触发浏览器重绘
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(100);
+
   console.log('📱 主页加载成功');
 
   // 选择 test3 智能体

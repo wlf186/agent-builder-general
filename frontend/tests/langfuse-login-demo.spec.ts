@@ -25,6 +25,11 @@ test('Langfuse 登录演示', async ({ page }) => {
   // 等待 SPA 加载完成（Langfuse 是 Next.js SPA）
   console.log('   等待页面加载...');
   await page.waitForLoadState('networkidle');
+
+  // 修复 X11 远程投屏渲染问题：触发浏览器重绘
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(100);
+
   await page.waitForTimeout(3000);
 
   const currentUrl = page.url();

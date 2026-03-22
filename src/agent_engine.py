@@ -970,8 +970,10 @@ Returns:
                 return "错误: 知识库检索器未初始化"
 
             # 【Langfuse 追踪】创建 RAG 工具调用 Span
+            # 【BUG FIX 2026-03-21】必须先获取 langfuse_tracer 实例
             rag_tool_span_id = None
             if is_langfuse_enabled() and trace_id:
+                langfuse_tracer = get_langfuse_tracer()
                 rag_tool_span_id = langfuse_tracer.create_span(
                     trace_id=trace_id,
                     span_name="tool.rag_retrieve",

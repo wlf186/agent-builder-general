@@ -58,6 +58,22 @@ const chatInput = page.locator('textarea').first();
 
 ---
 
+## Headed 模式必做事项
+
+> ⚠️ **X11 远程投屏渲染问题** - 通过 X11/VNC 远程投屏运行 headed 模式时，初始渲染可能出现屏幕内容断裂（大部分内容被遮盖）。
+
+**解决方案**：在 `page.waitForLoadState('networkidle')` 之后，必须触发一次滚动重绘：
+
+```typescript
+// 修复 X11 远程投屏渲染问题：触发浏览器重绘
+await page.evaluate(() => window.scrollTo(0, 0));
+await page.waitForTimeout(100);
+```
+
+**技术原理**：X11 远程投屏时，浏览器初始渲染可能与远程显示同步出现问题。`scrollTo` 操作会触发浏览器的 full repaint，强制将正确内容同步到 X11 显示缓冲区。
+
+---
+
 ## 标准测试模板
 
 ```typescript
@@ -65,6 +81,10 @@ test('智能体聊天测试', async ({ page }) => {
   // 1. 访问主页
   await page.goto('http://localhost:20880');
   await page.waitForLoadState('networkidle');
+
+  // 1.1 修复 X11 远程投屏渲染问题（headed 模式必做）
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(100);
 
   // 2. 选择智能体
   await page.locator('h3:has-text("test3")').first().click();

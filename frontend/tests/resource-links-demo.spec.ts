@@ -21,6 +21,10 @@ test.describe('资源链接跳转测试', () => {
     await page.goto(FRONTEND_URL);
     await page.waitForLoadState('networkidle');
 
+    // 修复 X11 远程投屏渲染问题：触发浏览器重绘
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(100);
+
     // 截图主页
     await page.screenshot({ path: 'test-results/home-page-check.png', fullPage: true });
     console.log('✓ 已保存主页截图');

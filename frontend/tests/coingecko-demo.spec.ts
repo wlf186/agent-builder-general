@@ -25,6 +25,11 @@ test.describe('CoinGecko 工具演示', () => {
     console.log('步骤1: 访问主页...');
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
+
+    // 修复 X11 远程投屏渲染问题：触发浏览器重绘
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(100);
+
     await saveScreenshot(page, '01-homepage');
     console.log('✓ 主页已加载');
     await page.waitForTimeout(3000);

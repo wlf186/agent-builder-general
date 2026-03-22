@@ -139,6 +139,12 @@ pkill -f "next-server" && rm -rf frontend/.next && cd frontend && npm run dev
 **正确选择器**: `page.locator('input[type="text"][placeholder]').first()`
 **错误选择器**: `page.locator('textarea').first()` ← 这是人设编辑框
 
+**X11 远程投屏渲染问题**: Headed 模式下，`waitForLoadState('networkidle')` 后必须执行：
+```typescript
+await page.evaluate(() => window.scrollTo(0, 0));
+```
+触发重绘，避免屏幕内容断裂。
+
 详见 [docs/references/testing-guide.md](docs/references/testing-guide.md)
 
 ---
