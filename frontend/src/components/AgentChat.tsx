@@ -1167,6 +1167,9 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
       const networkError = locale === "zh" ? '网络错误，请重试' : 'Network error, please retry';
       if (error instanceof Error && error.name === 'AbortError') {
         addLog('INFO', locale === "zh" ? '请求被取消' : 'Request cancelled');
+        // 移除空的 assistant 消息
+        setMessages((prev) => prev.filter(msg => msg.id !== assistantMsgId));
+        messagesRef.current = messagesRef.current.filter(msg => msg.id !== assistantMsgId);
       } else {
         setMessages((prev) =>
           prev.map((msg) =>
@@ -1207,6 +1210,13 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
       handleSend();
     }
   };
+
+  const handleStop = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, []);
 
   const toggleThinkingExpand = (msgId: string) => {
     setMessages((prev) =>
@@ -1737,11 +1747,16 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
           />
           <button
             type="button"
-            onClick={handleSend}
-            disabled={isRunning || isUploading || (!inputValue.trim() && pendingFiles.length === 0 && fileContext.file_ids.length === 0)}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            onClick={isRunning ? handleStop : handleSend}
+            aria-label={isRunning ? (locale === "zh" ? "停止生成" : "Stop generating") : t("send")}
+            disabled={!isRunning && (isUploading || (!inputValue.trim() && pendingFiles.length === 0 && fileContext.file_ids.length === 0))}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              isRunning
+                ? 'bg-red-500 hover:bg-red-600 text-white'
+                : 'bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed'
+            }`}
           >
-            {t("send")}
+            {isRunning ? <Square className="w-4 h-4" /> : t("send")}
           </button>
         </div>
 
