@@ -233,8 +233,8 @@ class LangfuseTracer:
             with self._objects_lock:
                 self._traces.pop(trace_id, None)
 
-            # 立即刷新以确保数据发送
-            self._sync_flush()
+            # 注意：不在此处同步 flush，由后台 _flush_loop 定期处理
+            # 同步 flush 会阻塞 generator 完成，导致前端在收到最后内容后等待
 
         except Exception as e:
             print(f"[Langfuse] 结束 trace 失败: {e}")

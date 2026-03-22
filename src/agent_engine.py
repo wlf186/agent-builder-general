@@ -2072,7 +2072,9 @@ BEST: 编号"""
             tool_calls = []
 
             # 优先检查原生 tool_calls（使用 bind_tools 时）
-            if self.llm_with_tools:
+            # 【性能优化】只在可能存在工具调用时才调用 ainvoke，避免不必要的 LLM 重新调用
+            # 根因：ainvoke 会阻塞约 4 秒，导致用户在看到最终回复后感知到明显卡顿
+            if self.llm_with_tools and might_be_tool_call:
                 # 需要重新调用 LLM 一次来获取完整的 tool_calls
                 # 因为流式响应中 tool_calls 可能不完整
                 try:
