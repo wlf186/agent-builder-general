@@ -1989,6 +1989,15 @@ BEST: 编号"""
             # ============================================================================
             try:
                 async for chunk in llm_to_use.astream(messages):
+                    # 【AC130-202603222100】检测原生 tool_calls（bind_tools 模式）
+                    # 当使用 bind_tools 时，工具调用信息在 chunk.tool_calls 中，而非 content
+                    if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
+                        might_be_tool_call = True
+                        if not content_started:
+                            content_started = True
+                            buffering = True
+                            yield {"type": "thinking", "content": "✓ 分析用户请求\n✓ 检测到原生工具调用..."}
+
                     if chunk.content:
                         response_content += chunk.content
 

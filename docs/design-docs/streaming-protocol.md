@@ -41,6 +41,38 @@ async for chunk in self.llm.astream(messages):
             yield {"type": "content", "content": char}  # 逐字符输出
 ```
 
+### 工具调用检测（双重模式）
+
+流式输出中需要检测工具调用，但 LLM 返回工具调用的方式有两种：
+
+**模式 1: 原生工具调用 (bind_tools)**
+```python
+# 当使用 llm.bind_tools() 时，工具信息在 chunk.tool_call_chunks 中
+if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
+    might_be_tool_call = True  # 标记为工具调用
+```
+
+**模式 2: 文本格式工具调用（兼容模式）**
+```python
+# 某些模型返回 JSON 文本格式
+if stripped.startswith('{') or '"tool"' in buffer_content:
+    might_be_tool_call = True
+```
+
+**⚠️ 性能优化陷阱 (AC130-202603222100)**:
+
+优化聊天结束后卡顿时，不能只依赖文本检测。必须同时检测 `tool_call_chunks`，否则原生工具调用会被跳过：
+
+```python
+# ❌ 错误：只检测文本内容
+if self.llm_with_tools and might_be_tool_call:  # might_be_tool_call 可能是 False
+    tool_calls = await llm.ainvoke(messages)
+
+# ✅ 正确：流式阶段检测原生工具调用
+if hasattr(chunk, 'tool_call_chunks') and chunk.tool_call_chunks:
+    might_be_tool_call = True  # 确保原生工具调用被正确标记
+```
+
 ### 事件类型
 
 | 类型 | 说明 | 示例 |
