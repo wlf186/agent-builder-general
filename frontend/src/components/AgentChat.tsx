@@ -63,7 +63,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { flushSync } from 'react-dom';  // 【关键】flushSync 用于强制同步渲染
 import { useLocale } from '@/lib/LocaleContext';
-import { ChevronDown, ChevronRight, Wrench, Lightbulb, Loader2, Clock, Zap, Hash, Paperclip, FileText, FileSpreadsheet, Image, File, X, Database } from 'lucide-react';
+import { ChevronDown, ChevronRight, Wrench, Lightbulb, Loader2, Clock, Zap, Hash, Paperclip, FileText, FileSpreadsheet, Image, File, X, Database, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PendingFile, FileAttachment, DEFAULT_FILE_CONFIG, formatFileSize, FileUploadConfig, FileContext, UploadedFile, SubAgentCallRecord } from '@/types';
