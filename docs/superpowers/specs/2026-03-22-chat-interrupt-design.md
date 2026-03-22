@@ -65,25 +65,55 @@ const handleStop = useCallback(() => {
 
 ### 3. 修改 AbortError 处理
 
-位置：`AgentChat.tsx` 第 1168-1178 行附近
+位置：`AgentChat.tsx` 第 1168 行，`handleSend` 函数内的 `catch` 块中
 
-**修改点**：在捕获 `AbortError` 时，移除空的 assistant 消息
+**说明**：此修改在 `handleSend` 的 try-catch 块内部，`assistantMsgId` 在此作用域内可访问。
 
+**修改前**：
+```typescript
+if (error instanceof Error && error.name === 'AbortError') {
+  addLog('INFO', locale === "zh" ? '请求被取消' : 'Request cancelled');
+} else {
+  setMessages((prev) =>
+    prev.map((msg) =>
+      msg.id === assistantMsgId
+        ? { ...msg, content: networkError }
+        : msg
+    )
+  );
+}
+```
+
+**修改后**：
 ```typescript
 if (error instanceof Error && error.name === 'AbortError') {
   addLog('INFO', locale === "zh" ? '请求被取消' : 'Request cancelled');
   // 移除空的 assistant 消息
   setMessages((prev) => prev.filter(msg => msg.id !== assistantMsgId));
   messagesRef.current = messagesRef.current.filter(msg => msg.id !== assistantMsgId);
+} else {
+  setMessages((prev) =>
+    prev.map((msg) =>
+      msg.id === assistantMsgId
+        ? { ...msg, content: networkError }
+        : msg
+    )
+  );
 }
 ```
 
 ### 4. 导入图标
 
-位置：文件顶部 lucide-react 导入语句
+位置：`AgentChat.tsx` 第 66 行
 
+**修改前**：
 ```typescript
-import { ..., Square } from 'lucide-react';
+import { ChevronDown, ChevronRight, Wrench, Lightbulb, Loader2, Clock, Zap, Hash, Paperclip, FileText, FileSpreadsheet, Image, File, X, Database } from 'lucide-react';
+```
+
+**修改后**：
+```typescript
+import { ChevronDown, ChevronRight, Wrench, Lightbulb, Loader2, Clock, Zap, Hash, Paperclip, FileText, FileSpreadsheet, Image, File, X, Database, Square } from 'lucide-react';
 ```
 
 ---
