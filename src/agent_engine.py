@@ -522,7 +522,7 @@ Returns:
             }
 
         # 检查子Agent是否存在
-        sub_agent_instance = self.agent_manager.get_agent(sub_agent_name)
+        sub_agent_instance = await self.agent_manager.get_instance(sub_agent_name)
         if not sub_agent_instance:
             return {
                 "success": False,

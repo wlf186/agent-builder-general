@@ -365,6 +365,7 @@ class AgentManager:
             self.skills_dir,
             self.model_service_registry,
             execution_engine=self.execution_engine,
+            agent_manager=self,          # 【AC130-202603142210】多Agent模式支持
             kb_manager=self.kb_manager,  # 【AC130-202603161542】
             embedder=self.embedder       # 【AC130-202603170949】
         )
