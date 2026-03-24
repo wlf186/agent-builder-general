@@ -98,6 +98,85 @@
 
 无需后端改动，仅前端 UI 层面的术语和结构重组。
 
+## 补充设计细节
+
+### 状态管理：嵌套展开/收起
+
+- **父面板展开时**：子区块恢复各自的上次状态
+- **父面板收起时**：子区块状态保留，但视觉上隐藏
+- **默认行为**：父面板默认展开；子区块根据是否有选中项决定是否展开
+- **状态变量**：
+  ```typescript
+  const [configToolsExpanded, setConfigToolsExpanded] = useState(true);
+  const [mcpToolsExpanded, setMcpToolsExpanded] = useState(selectedMcpServices.length > 0);
+  const [skillToolsExpanded, setSkillToolsExpanded] = useState(selectedSkills.length > 0);
+  const [agentToolsExpanded, setAgentToolsExpanded] = useState(selectedSubAgents.length > 0);
+  const [kbToolsExpanded, setKbToolsExpanded] = useState(selectedKnowledgeBases.length > 0);
+  ```
+
+### 计数徽章逻辑
+
+父面板标题显示 **已选中的工具总数**：
+```
+工具配置 (8)  // = 2 MCP + 3 Skills + 1 Sub-Agent + 2 KB 选中项之和
+```
+
+### 术语标准化
+
+| 场景 | 中文 | 英文 |
+|------|------|------|
+| UI 标题 | 子智能体工具 | Agent Tools |
+| 代码变量 | subAgents / sub_agents | subAgents / sub_agents |
+| 提示文字 | 子智能体 | Sub-Agent |
+
+**统一规则**：UI 面向用户使用"子智能体"，代码层面保持 sub_agent 命名。
+
+### 图标规范
+
+| 区块 | Lucide 图标 | 颜色 |
+|------|-------------|------|
+| 父面板 | `Settings` | `text-gray-400` |
+| MCP工具 | `Plug` | `text-emerald-400` |
+| 技能工具 | `BookOpen` | `text-purple-400` |
+| 子智能体工具 | `Bot` | `text-indigo-400` |
+| 知识库工具 | `Database` | `text-emerald-400` |
+
+### 组件架构
+
+**保持现状**：MCP 和 Skills 配置区块保持内联在 `page.tsx` 中，不抽取为独立组件。
+
+**原因**：
+1. 减少改动范围，降低风险
+2. `SubAgentSelector` 和 `KnowledgeBaseSelector` 已经是独立组件，可直接复用
+3. MCP 和 Skills 的交互逻辑与页面状态紧密耦合，抽取收益不大
+
+**结构**：
+```tsx
+<Card> {/* 父面板 */}
+  <CardHeader onClick={() => setConfigToolsExpanded(!configToolsExpanded)}>
+    <Settings /> 工具配置 ({totalCount})
+  </CardHeader>
+  {configToolsExpanded && (
+    <CardContent>
+      {/* MCP 内联区块 */}
+      {/* Skills 内联区块 */}
+      {/* SubAgentSelector 组件 */}
+      {/* KnowledgeBaseSelector 组件 */}
+    </CardContent>
+  )}
+</Card>
+```
+
+### i18n Key 复用策略
+
+| 原 Key | 处理方式 |
+|--------|----------|
+| `toolConfig` | 复用为父面板标题 |
+| `toolConfigDesc` | 复用为父面板描述 |
+| `skillsConfig` | 改为 `skillToolsConfig` |
+| 新增 | `mcpTools`, `skillTools`, `agentTools`, `knowledgeTools` |
+| 新增 | `mcpToolsHint`, `skillToolsHint`, `agentToolsHint`, `knowledgeToolsHint` |
+
 ## 验收标准
 
 1. 四个能力配置区块统一在"工具配置"大面板下
@@ -105,3 +184,6 @@
 3. 每个子区块底部有说明文字帮助区分用途
 4. 中英文术语正确显示
 5. 原有功能（选择、保存、加载）不受影响
+6. 父面板计数徽章显示已选中工具总数
+7. 嵌套展开/收起状态正确工作
+8. 语言切换后所有标签正确更新
