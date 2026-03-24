@@ -54,12 +54,12 @@ export function KnowledgeBaseSelector({
 
   return (
     <MultiSelectPanel<KnowledgeBase>
-      title={zh ? "知识库配置" : "Knowledge Base Configuration"}
+      title={zh ? "知识库工具" : "Knowledge Tools"}
       icon={<Database size={16} />}
       color="emerald"
       hint={zh
-        ? "选择知识库后，智能体将基于私有文档内容回答问题"
-        : "After selecting knowledge bases, the agent will answer questions based on private document content"
+        ? "检索私有文档，让 Agent 基于你的资料回答"
+        : "Search private documents to answer based on your data"
       }
       items={knowledgeBases}
       selectedIds={selectedIds}

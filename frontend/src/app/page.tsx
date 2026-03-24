@@ -33,6 +33,7 @@ import {
   ExternalLink,
   Database,
   Activity,
+  Plug,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -205,7 +206,11 @@ export default function Home() {
   const [configModelExpanded, setConfigModelExpanded] = useState(true);
   const [configAdvancedExpanded, setConfigAdvancedExpanded] = useState(false);
   const [configToolsExpanded, setConfigToolsExpanded] = useState(true);
-  const [configSkillsExpanded, setConfigSkillsExpanded] = useState(true);
+  // 子区块展开状态（嵌套在工具配置面板内）
+  const [mcpToolsExpanded, setMcpToolsExpanded] = useState(false);
+  const [skillToolsExpanded, setSkillToolsExpanded] = useState(false);
+  const [agentToolsExpanded, setAgentToolsExpanded] = useState(false);
+  const [kbToolsExpanded, setKbToolsExpanded] = useState(false);
 
   // Knowledge Base states - AC130
   const [sidebarKbExpanded, setSidebarKbExpanded] = useState(true);
@@ -214,7 +219,6 @@ export default function Home() {
   const [kbDetailOpen, setKbDetailOpen] = useState(false);
   const [kbDialogOpen, setKbDialogOpen] = useState(false);
   const [editingKb, setEditingKb] = useState<KnowledgeBase | null>(null);
-  const [configSubAgentsExpanded, setConfigSubAgentsExpanded] = useState(false);
   const [sidebarResourcesExpanded, setSidebarResourcesExpanded] = useState(true);
 
   // Langfuse URL - dynamically set to support remote access
@@ -224,6 +228,9 @@ export default function Home() {
   const [conversationDrawerOpen, setConversationDrawerOpen] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [currentConversationMessages, setCurrentConversationMessages] = useState<any[]>([]);
+
+  // 计算已选中的工具总数
+  const totalSelectedTools = selectedMcpServices.length + selectedSkills.length + selectedSubAgents.length + selectedKnowledgeBases.length;
 
   // Set Langfuse URL dynamically for remote access
   useEffect(() => {
@@ -937,9 +944,9 @@ export default function Home() {
                                 </div>
                                 {tools.length > 0 && (
                                   <div className="flex flex-wrap gap-1 mt-1">
-                                    {tools.map((tool) => (
+                                    {tools.map((tool, idx) => (
                                       <span
-                                        key={tool.name}
+                                        key={`sidebar-${service.name}-tool-${idx}`}
                                         title={tool.description || tool.name}
                                         className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 font-mono cursor-help"
                                       >
@@ -1754,263 +1761,327 @@ export default function Home() {
             )}
           </Card>
 
-          {/* Tool Config - MCP Services */}
+          {/* Tool Config - 统一的工具配置面板 */}
           <Card className="overflow-hidden">
             <div
               className="px-5 py-4 border-b border-white/[0.05] flex items-center gap-3 bg-white/[0.02] cursor-pointer"
               onClick={() => setConfigToolsExpanded(!configToolsExpanded)}
             >
-              <Wrench size={16} className="text-emerald-400" />
+              <Settings size={16} className="text-emerald-400" />
               <span className="font-medium text-sm text-gray-300 flex-1">
-                {locale === "zh" ? "工具配置" : "Tool Configuration"}
+                {t("toolConfig")}
               </span>
+              {totalSelectedTools > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                  {totalSelectedTools}
+                </span>
+              )}
               {configToolsExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
             </div>
             {configToolsExpanded && (
-              <CardContent className="p-5">
-              {mcpServices.length === 0 ? (
-                <div className="text-center py-6">
-                  <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mx-auto mb-3">
-                    <Server size={20} className="text-gray-600" />
-                  </div>
-                  <p className="text-sm text-gray-500 mb-3">
-                    {locale === "zh" ? "暂无可用的 MCP 服务" : "No MCP services available"}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentView("list")}
+              <CardContent className="p-4 space-y-3">
+                {/* MCP工具子区块 */}
+                <div className="border border-white/[0.05] rounded-xl overflow-hidden">
+                  <div
+                    className="px-4 py-3 flex items-center gap-3 bg-white/[0.01] cursor-pointer hover:bg-white/[0.03] transition-colors"
+                    onClick={() => setMcpToolsExpanded(!mcpToolsExpanded)}
                   >
-                    {locale === "zh" ? "前往创建" : "Create One"}
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-xs text-gray-500 mb-2">
-                    {locale === "zh" ? "选择此 Agent 可使用的 MCP 服务" : "Select MCP services for this agent"}
-                  </p>
-                  <p className="text-xs text-gray-600 mb-3 italic">
-                    {locale === "zh"
-                      ? "💡 服务包含多个工具，Agent 将根据需要自动选择调用"
-                      : "💡 Each service contains tools that the agent can automatically use"}
-                  </p>
-                  {mcpServices.map((service) => {
-                    const isBuiltin = BUILTIN_SERVICES.includes(service.name);
-                    const testResult = mcpTestResults[service.name];
-                    const tools = testResult?.tools || [];
-                    return (
-                      <label
-                        key={service.name}
-                        className={cn(
-                          "flex items-start gap-3 p-4 rounded-xl cursor-pointer transition-all border",
-                          selectedMcpServices.includes(service.name)
-                            ? "bg-emerald-500/10 border-emerald-500/30"
-                            : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04]"
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedMcpServices.includes(service.name)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedMcpServices([...selectedMcpServices, service.name]);
-                            } else {
-                              setSelectedMcpServices(selectedMcpServices.filter((s) => s !== service.name));
-                            }
-                          }}
-                          className="mt-0.5 accent-emerald-500 w-4 h-4 rounded"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium text-sm text-gray-200">{service.name}</span>
-                            {isBuiltin && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
-                                {locale === "zh" ? "预置" : "builtin"}
-                              </span>
-                            )}
-                            <span
-                              className={cn(
-                                "w-2 h-2 rounded-full",
-                                service.enabled ? "bg-emerald-500" : "bg-gray-500"
-                              )}
-                            />
-                            <span className="text-xs px-2 py-0.5 rounded bg-white/10 text-gray-400">
-                              {service.connection_type}
-                            </span>
-                            {/* 显示已测试的工具数量 */}
-                            {testResult?.success && tools.length > 0 && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">
-                                {tools.length} {locale === "zh" ? "个工具" : "tools"}
-                              </span>
-                            )}
+                    <Plug size={14} className="text-emerald-400" />
+                    <span className="font-medium text-sm text-gray-300 flex-1">
+                      {t("mcpTools")}
+                    </span>
+                    {selectedMcpServices.length > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                        {selectedMcpServices.length}
+                      </span>
+                    )}
+                    {mcpToolsExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                  </div>
+                  {mcpToolsExpanded && (
+                    <div className="p-4 border-t border-white/[0.05]">
+                      <p className="text-xs text-gray-500 mb-3">{t("mcpToolsHint")}</p>
+                      {mcpServices.length === 0 ? (
+                        <div className="text-center py-4">
+                          <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center mx-auto mb-2">
+                            <Server size={16} className="text-gray-600" />
                           </div>
-                          {service.description && (
-                            <p className="text-xs text-gray-500 mt-1 line-clamp-2">{service.description}</p>
-                          )}
-                          {/* 显示已测试的工具列表（只读） */}
-                          {testResult?.success && tools.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {tools.slice(0, 5).map((tool) => (
-                                <span
-                                  key={tool.name}
-                                  title={tool.description || tool.name}
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-400 font-mono cursor-help"
-                                >
-                                  {tool.name}
-                                </span>
-                              ))}
-                              {tools.length > 5 && (
-                                <span className="text-[10px] px-1.5 py-0.5 text-gray-500">
-                                  +{tools.length - 5}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          <p className="text-xs text-gray-500 mb-2">
+                            {locale === "zh" ? "暂无可用的 MCP 服务" : "No MCP services available"}
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentView("list")}
+                          >
+                            {locale === "zh" ? "前往创建" : "Create One"}
+                          </Button>
                         </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-            )}
-          </Card>
-
-          {/* Skills Config - 环境初始化期间禁用 */}
-          <Card className={cn(
-            "overflow-hidden transition-all duration-300",
-            isEnvironmentCreating && "opacity-50 pointer-events-none"
-          )}>
-            <div
-              className="px-5 py-4 border-b border-white/[0.05] flex items-center gap-3 bg-white/[0.02] cursor-pointer"
-              onClick={() => !isEnvironmentCreating && setConfigSkillsExpanded(!configSkillsExpanded)}
-            >
-              <BookOpen size={16} className={cn(
-                "transition-colors",
-                isEnvironmentCreating ? "text-gray-500" : "text-purple-400"
-              )} />
-              <span className="font-medium text-sm text-gray-300 flex-1">
-                {locale === "zh" ? "技能配置" : "Skills Configuration"}
-              </span>
-              {configSkillsExpanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-              {isEnvironmentCreating && (
-                <Loader2 size={14} className="text-blue-400 animate-spin" />
-              )}
-            </div>
-            {configSkillsExpanded && (
-              <CardContent className="p-5">
-                {skills.length === 0 ? (
-                  <div className="text-center py-6">
-                    <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center mx-auto mb-3">
-                      <BookOpen size={20} className="text-gray-600" />
+                      ) : (
+                        <div className="space-y-2">
+                          {mcpServices.map((service) => {
+                            const isBuiltin = BUILTIN_SERVICES.includes(service.name);
+                            const testResult = mcpTestResults[service.name];
+                            const tools = testResult?.tools || [];
+                            return (
+                              <label
+                                key={service.name}
+                                className={cn(
+                                  "flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-all border",
+                                  selectedMcpServices.includes(service.name)
+                                    ? "bg-emerald-500/10 border-emerald-500/30"
+                                    : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04]"
+                                )}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedMcpServices.includes(service.name)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedMcpServices([...selectedMcpServices, service.name]);
+                                    } else {
+                                      setSelectedMcpServices(selectedMcpServices.filter((s) => s !== service.name));
+                                    }
+                                  }}
+                                  className="mt-0.5 accent-emerald-500 w-4 h-4 rounded"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-medium text-sm text-gray-200">{service.name}</span>
+                                    {isBuiltin && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                                        {locale === "zh" ? "预置" : "builtin"}
+                                      </span>
+                                    )}
+                                    <span
+                                      className={cn(
+                                        "w-2 h-2 rounded-full",
+                                        service.enabled ? "bg-emerald-500" : "bg-gray-500"
+                                      )}
+                                    />
+                                    <span className="text-xs px-2 py-0.5 rounded bg-white/10 text-gray-400">
+                                      {service.connection_type}
+                                    </span>
+                                    {testResult?.success && tools.length > 0 && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">
+                                        {tools.length} {locale === "zh" ? "个工具" : "tools"}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {service.description && (
+                                    <p className="text-xs text-gray-500 mt-1 line-clamp-2">{service.description}</p>
+                                  )}
+                                  {testResult?.success && tools.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-2">
+                                      {tools.slice(0, 5).map((tool, idx) => (
+                                        <span
+                                          key={`settings-${service.name}-tool-${idx}`}
+                                          title={tool.description || tool.name}
+                                          className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-gray-400 font-mono cursor-help"
+                                        >
+                                          {tool.name}
+                                        </span>
+                                      ))}
+                                      {tools.length > 5 && (
+                                        <span className="text-[10px] px-1.5 py-0.5 text-gray-500">
+                                          +{tools.length - 5}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    <p className="text-sm text-gray-500 mb-3">
-                    {locale === "zh" ? "暂无可用的技能" : "No skills available"}
-                  </p>
+                  )}
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-xs text-gray-500 mb-2">
-                    {locale === "zh" ? "选择此 Agent 可使用的技能" : "Select skills for this agent"}
-                  </p>
-                  <p className="text-xs text-gray-600 mb-3 italic">
-                    {locale === "zh"
-                      ? "💡 技能会加载到系统提示词中，指导 Agent 完成特定任务"
-                      : "💡 Skills are loaded into system prompts to guide the agent"}
-                  </p>
-                  {skills.map((skill) => {
-                    const isBuiltin = skill.source === "builtin";
-                    return (
-                      <label
-                        key={skill.name}
-                        className={cn(
-                          "flex items-start gap-3 p-4 rounded-xl cursor-pointer transition-all border",
-                          selectedSkills.includes(skill.name)
-                            ? "bg-purple-500/10 border-purple-500/30"
-                            : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04]"
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedSkills.includes(skill.name)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedSkills([...selectedSkills, skill.name]);
-                            } else {
-                              setSelectedSkills(selectedSkills.filter((s) => s !== skill.name));
-                            }
-                          }}
-                          className="mt-0.5 accent-purple-500 w-4 h-4 rounded"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium text-sm text-gray-200">{skill.name}</span>
-                            {isBuiltin ? (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
-                                {locale === "zh" ? "官方" : "Official"}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">
-                                {locale === "zh" ? "自定义" : "Custom"}
-                              </span>
-                            )}
-                            {skill.version && (
-                              <span className="text-xs px-2 py-0.5 rounded bg-white/10 text-gray-400">
-                                v{skill.version}
-                              </span>
-                            )}
+
+                {/* 技能工具子区块 */}
+                <div className={cn(
+                  "border border-white/[0.05] rounded-xl overflow-hidden transition-all duration-300",
+                  isEnvironmentCreating && "opacity-50 pointer-events-none"
+                )}>
+                  <div
+                    className="px-4 py-3 flex items-center gap-3 bg-white/[0.01] cursor-pointer hover:bg-white/[0.03] transition-colors"
+                    onClick={() => !isEnvironmentCreating && setSkillToolsExpanded(!skillToolsExpanded)}
+                  >
+                    <BookOpen size={14} className="text-purple-400" />
+                    <span className="font-medium text-sm text-gray-300 flex-1">
+                      {t("skillTools")}
+                    </span>
+                    {selectedSkills.length > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">
+                        {selectedSkills.length}
+                      </span>
+                    )}
+                    {isEnvironmentCreating && (
+                      <Loader2 size={12} className="text-blue-400 animate-spin" />
+                    )}
+                    {skillToolsExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                  </div>
+                  {skillToolsExpanded && (
+                    <div className="p-4 border-t border-white/[0.05]">
+                      <p className="text-xs text-gray-500 mb-3">{t("skillToolsHint")}</p>
+                      {skills.length === 0 ? (
+                        <div className="text-center py-4">
+                          <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center mx-auto mb-2">
+                            <BookOpen size={16} className="text-gray-600" />
                           </div>
-                          {skill.description && (
-                            <p className="text-xs text-gray-500 mt-1 line-clamp-2">{skill.description}</p>
-                          )}
-                          {skill.tags && skill.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {skill.tags.map((tag) => (
-                                <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
-                          )}
+                          <p className="text-xs text-gray-500">
+                            {locale === "zh" ? "暂无可用的技能" : "No skills available"}
+                          </p>
                         </div>
-                      </label>
-                    );
-                  })}
+                      ) : (
+                        <div className="space-y-2">
+                          {skills.map((skill) => {
+                            const isBuiltin = skill.source === "builtin";
+                            return (
+                              <label
+                                key={skill.name}
+                                className={cn(
+                                  "flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-all border",
+                                  selectedSkills.includes(skill.name)
+                                    ? "bg-purple-500/10 border-purple-500/30"
+                                    : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04]"
+                                )}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSkills.includes(skill.name)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedSkills([...selectedSkills, skill.name]);
+                                    } else {
+                                      setSelectedSkills(selectedSkills.filter((s) => s !== skill.name));
+                                    }
+                                  }}
+                                  className="mt-0.5 accent-purple-500 w-4 h-4 rounded"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-medium text-sm text-gray-200">{skill.name}</span>
+                                    {isBuiltin ? (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                                        {locale === "zh" ? "官方" : "Official"}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">
+                                        {locale === "zh" ? "自定义" : "Custom"}
+                                      </span>
+                                    )}
+                                    {skill.version && (
+                                      <span className="text-xs px-2 py-0.5 rounded bg-white/10 text-gray-400">
+                                        v{skill.version}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {skill.description && (
+                                    <p className="text-xs text-gray-500 mt-1 line-clamp-2">{skill.description}</p>
+                                  )}
+                                  {skill.tags && skill.tags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-2">
+                                      {skill.tags.map((tag) => (
+                                        <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                                          {tag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              )}
-            </CardContent>
+
+                {/* 子智能体工具子区块 */}
+                <div className={cn(
+                  "border border-white/[0.05] rounded-xl overflow-hidden transition-all duration-300",
+                  isEnvironmentCreating && "opacity-50 pointer-events-none"
+                )}>
+                  <div
+                    className="px-4 py-3 flex items-center gap-3 bg-white/[0.01] cursor-pointer hover:bg-white/[0.03] transition-colors"
+                    onClick={() => !isEnvironmentCreating && setAgentToolsExpanded(!agentToolsExpanded)}
+                  >
+                    <Bot size={14} className="text-indigo-400" />
+                    <span className="font-medium text-sm text-gray-300 flex-1">
+                      {t("agentTools")}
+                    </span>
+                    {selectedSubAgents.length > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400">
+                        {selectedSubAgents.length}
+                      </span>
+                    )}
+                    {isEnvironmentCreating && (
+                      <Loader2 size={12} className="text-blue-400 animate-spin" />
+                    )}
+                    {agentToolsExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                  </div>
+                  {agentToolsExpanded && (
+                    <div className="p-4 border-t border-white/[0.05]">
+                      <p className="text-xs text-gray-500 mb-3">{t("agentToolsHint")}</p>
+                      <SubAgentSelector
+                        availableAgents={agents.map(agent => ({
+                          name: agent.name,
+                          persona: agent.description || "",
+                          model_service: agent.model_service || null,
+                          skills: [],
+                          mcp_services: [],
+                        }))}
+                        currentAgentName={selectedAgent || undefined}
+                        selectedAgents={selectedSubAgents}
+                        onSelectionChange={setSelectedSubAgents}
+                        cycleError={cycleError}
+                        disabled={isEnvironmentCreating || isSaving}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 知识库工具子区块 */}
+                <div className={cn(
+                  "border border-white/[0.05] rounded-xl overflow-hidden transition-all duration-300",
+                  isEnvironmentCreating && "opacity-50 pointer-events-none"
+                )}>
+                  <div
+                    className="px-4 py-3 flex items-center gap-3 bg-white/[0.01] cursor-pointer hover:bg-white/[0.03] transition-colors"
+                    onClick={() => !isEnvironmentCreating && setKbToolsExpanded(!kbToolsExpanded)}
+                  >
+                    <Database size={14} className="text-emerald-400" />
+                    <span className="font-medium text-sm text-gray-300 flex-1">
+                      {t("knowledgeTools")}
+                    </span>
+                    {selectedKnowledgeBases.length > 0 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                        {selectedKnowledgeBases.length}
+                      </span>
+                    )}
+                    {isEnvironmentCreating && (
+                      <Loader2 size={12} className="text-blue-400 animate-spin" />
+                    )}
+                    {kbToolsExpanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                  </div>
+                  {kbToolsExpanded && (
+                    <div className="p-4 border-t border-white/[0.05]">
+                      <p className="text-xs text-gray-500 mb-3">{t("knowledgeToolsHint")}</p>
+                      <KnowledgeBaseSelector
+                        selectedIds={selectedKnowledgeBases}
+                        onChange={setSelectedKnowledgeBases}
+                        disabled={isEnvironmentCreating || isSaving}
+                        onCreateNew={() => { setEditingKb(null); setKbDialogOpen(true); }}
+                        onItemClick={(kb) => { setSelectedKb(kb); setKbDetailOpen(true); }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </CardContent>
             )}
           </Card>
-
-          {/* 【AC130 新增】Sub-Agents Config - 环境初始化期间禁用 */}
-          <SubAgentSelector
-            availableAgents={agents.map(agent => ({
-              name: agent.name,
-              persona: agent.description || "",
-              model_service: agent.model_service || null,
-              skills: [],
-              mcp_services: [],
-            }))}
-            currentAgentName={selectedAgent || undefined}
-            selectedAgents={selectedSubAgents}
-            onSelectionChange={setSelectedSubAgents}
-            cycleError={cycleError}
-            disabled={isEnvironmentCreating || isSaving}
-          />
-
-          {/* 【AC130-202603161542】知识库配置 - 环境初始化期间禁用 */}
-          <div className={cn(
-            "transition-all duration-300",
-            isEnvironmentCreating && "opacity-50 pointer-events-none"
-          )}>
-            <KnowledgeBaseSelector
-              selectedIds={selectedKnowledgeBases}
-              onChange={setSelectedKnowledgeBases}
-              disabled={isEnvironmentCreating || isSaving}
-              onCreateNew={() => { setEditingKb(null); setKbDialogOpen(true); }}
-              onItemClick={(kb) => { setSelectedKb(kb); setKbDetailOpen(true); }}
-            />
-          </div>
         </motion.div>
 
         {/* Right Panel - Chat - 环境初始化期间禁用 */}
