@@ -177,6 +177,14 @@ start_docs_site() {
     fi
 }
 
+# 清除前端缓存
+clear_frontend_cache() {
+    if [ -d "frontend/.next" ]; then
+        log_info "清除前端缓存 (frontend/.next)..."
+        rm -rf frontend/.next
+    fi
+}
+
 # 启动前端
 start_frontend() {
     log_info "启动前端服务..."
@@ -229,6 +237,8 @@ main() {
     start_backend
     echo ""
     start_docs_site $1
+    echo ""
+    clear_frontend_cache
     echo ""
     start_frontend $1
 
