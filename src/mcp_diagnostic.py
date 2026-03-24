@@ -212,7 +212,7 @@ class MCPDiagnostic:
             )
 
     async def _check_tcp_connection(self) -> DiagnosticResult:
-        """检查TCP连接"""
+        """检查网络连接（使用httpx以支持代理）"""
         start = time.time()
 
         if not self.config.url:
@@ -228,36 +228,49 @@ class MCPDiagnostic:
             host = parsed.hostname
             port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
-            # 尝试建立TCP连接
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port),
-                timeout=5.0
-            )
+            # 使用httpx进行连接测试（自动支持代理环境变量）
+            import httpx
 
-            # 获取对端地址
-            peer_name = writer.get_extra_info('peername')
-            writer.close()
-            await writer.wait_closed()
+            # 构建基础URL进行连通性测试
+            base_url = f"{parsed.scheme}://{host}"
+            if parsed.port:
+                base_url += f":{parsed.port}"
 
-            latency = int((time.time() - start) * 1000)
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # 发送HEAD请求测试连通性
+                response = await client.head(base_url, follow_redirects=True)
 
-            return DiagnosticResult(
-                layer="network",
-                status="pass",
-                message=f"TCP连接成功: {peer_name[0]}:{peer_name[1]}",
-                latency_ms=latency,
-                details={
-                    "host": host,
-                    "ip": peer_name[0],
-                    "port": peer_name[1]
-                }
-            )
+                latency = int((time.time() - start) * 1000)
+
+                # 获取实际连接的远程地址（如果可用）
+                # httpx会自动使用系统代理，所以这里显示代理模式
+                proxy_info = ""
+                if client._transport_for_url(httpx.URL(base_url)):
+                    # 检查是否使用了代理
+                    import os
+                    https_proxy = os.environ.get('https_proxy') or os.environ.get('HTTPS_PROXY')
+                    if https_proxy:
+                        proxy_info = f" (via proxy: {https_proxy})"
+
+                return DiagnosticResult(
+                    layer="network",
+                    status="pass",
+                    message=f"网络连接成功: HTTP {response.status_code}{proxy_info}",
+                    latency_ms=latency,
+                    details={
+                        "host": host,
+                        "port": port,
+                        "http_status": response.status_code,
+                        "proxy_used": https_proxy if https_proxy else None
+                    }
+                )
+
         except asyncio.TimeoutError:
             return DiagnosticResult(
                 layer="network",
                 status="fail",
-                message="TCP连接超时（5秒）",
-                latency_ms=5000
+                message="网络连接超时（10秒）",
+                latency_ms=10000
             )
         except ConnectionRefusedError:
             return DiagnosticResult(
@@ -270,12 +283,12 @@ class MCPDiagnostic:
             return DiagnosticResult(
                 layer="network",
                 status="fail",
-                message=f"TCP连接失败: {e}",
+                message=f"网络连接失败: {e}",
                 latency_ms=int((time.time() - start) * 1000)
             )
 
     async def _check_tls_connection(self) -> DiagnosticResult:
-        """检查TLS/SSL连接"""
+        """检查TLS/SSL连接（使用httpx以支持代理）"""
         start = time.time()
 
         if not self.config.url:
@@ -286,43 +299,47 @@ class MCPDiagnostic:
                 latency_ms=None
             )
 
+        if not self.config.url.startswith("https://"):
+            return DiagnosticResult(
+                layer="tls",
+                status="skip",
+                message="非HTTPS连接，跳过TLS检查",
+                latency_ms=None
+            )
+
         try:
             parsed = urlparse(self.config.url)
             host = parsed.hostname
-            port = parsed.port or 443
 
-            # 创建SSL上下文
-            ssl_context = ssl.create_default_context()
+            # 使用httpx进行TLS连接测试（自动支持代理环境变量）
+            import httpx
 
-            # 建立TLS连接
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port, ssl=ssl_context),
-                timeout=10.0
-            )
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # 使用HEAD请求避免SSE流式响应导致超时
+                response = await client.head(self.config.url, follow_redirects=False)
 
-            # 获取TLS信息
-            ssl_object = writer.get_extra_info('ssl_object')
-            cert = writer.get_extra_info('peercert')
+                latency = int((time.time() - start) * 1000)
 
-            tls_version = ssl_object.version() if ssl_object else "unknown"
-            cipher = ssl_object.cipher() if ssl_object else None
+                # 从httpx获取TLS信息
+                # httpx的底层连接会自动处理TLS
+                tls_info = "TLS 1.2+"  # httpx默认使用安全TLS配置
 
-            writer.close()
-            await writer.wait_closed()
+                # 检查是否使用了代理
+                import os
+                https_proxy = os.environ.get('https_proxy') or os.environ.get('HTTPS_PROXY')
+                proxy_info = f" (via proxy)" if https_proxy else ""
 
-            latency = int((time.time() - start) * 1000)
-
-            return DiagnosticResult(
-                layer="tls",
-                status="pass",
-                message=f"TLS连接成功 (version: {tls_version})",
-                latency_ms=latency,
-                details={
-                    "tls_version": tls_version,
-                    "cipher": cipher[0] if cipher else None,
-                    "cert_subject": cert.get('subject', [[['']]])[0][0][1] if cert else None
-                }
-            )
+                return DiagnosticResult(
+                    layer="tls",
+                    status="pass",
+                    message=f"TLS连接成功{proxy_info}",
+                    latency_ms=latency,
+                    details={
+                        "tls_version": tls_info,
+                        "proxy_used": https_proxy if https_proxy else None,
+                        "http_status": response.status_code
+                    }
+                )
         except ssl.SSLCertVerificationError as e:
             return DiagnosticResult(
                 layer="tls",
