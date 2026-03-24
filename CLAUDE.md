@@ -40,6 +40,11 @@ pip install package   # ❌ 可能安装到系统目录
 pkill -f "next-server" && rm -rf frontend/.next && cd frontend && npm run dev
 ```
 
+> ⚠️ **重启服务前清除前端缓存** - 每次执行 `./stop.sh && ./start.sh` 前，必须先清除 Next.js 缓存，否则可能加载旧代码：
+> ```bash
+> rm -rf frontend/.next && ./stop.sh && ./start.sh --skip-deps
+> ```
+
 ---
 
 ## 目录结构
