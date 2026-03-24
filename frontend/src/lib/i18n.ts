@@ -119,6 +119,22 @@ export const translations = {
     noMcpServices: "暂无可用的 MCP 服务",
     createMcpServiceFirst: "前往创建",
 
+    // Tools (统一概念)
+    mcpTools: "MCP工具",
+    mcpToolsHint: "连接外部 API 和服务，Agent 可主动调用",
+    skillTools: "技能工具",
+    skillToolsHint: "注入行为指令，自动加载到系统提示词",
+    agentTools: "子智能体工具",
+    agentToolsHint: "委派任务给其他 Agent，适合多角色协作",
+    knowledgeTools: "知识库工具",
+    knowledgeToolsHint: "检索私有文档，让 Agent 基于你的资料回答",
+    noMcpTools: "暂无可用的 MCP 服务",
+    noSkillTools: "暂无可用的技能",
+    noAgentTools: "没有可用的 Agent",
+    noKnowledgeTools: "还没有知识库，请先创建",
+    agentToolsWarning: "注意：子智能体的工具和技能将作为主 Agent 的扩展能力可用",
+    loading: "加载中...",
+
     // Skills
     skills: "技能货架",
     skillsDesc: "管理可用的技能",
@@ -305,6 +321,22 @@ export const translations = {
     toolConfigDesc: "Select MCP services for this agent",
     noMcpServices: "No MCP services available",
     createMcpServiceFirst: "Create One",
+
+    // Tools (unified concept)
+    mcpTools: "MCP Tools",
+    mcpToolsHint: "Connect external APIs and services that the agent can call",
+    skillTools: "Skill Tools",
+    skillToolsHint: "Inject behavior instructions, auto-loaded into system prompts",
+    agentTools: "Agent Tools",
+    agentToolsHint: "Delegate tasks to other agents for multi-role collaboration",
+    knowledgeTools: "Knowledge Tools",
+    knowledgeToolsHint: "Search private documents to answer based on your data",
+    noMcpTools: "No MCP services available",
+    noSkillTools: "No skills available",
+    noAgentTools: "No available agents",
+    noKnowledgeTools: "No knowledge bases yet, please create one",
+    agentToolsWarning: "Note: Sub-agent tools and skills will be available to the main agent",
+    loading: "Loading...",
 
     // Skills
     skills: "Skills Shelf",
