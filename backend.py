@@ -73,6 +73,7 @@ from src.skill_loader import SkillLoader
 from src.model_service_registry import ModelServiceRegistry
 from src.model_provider_tester import test_model_service_connection
 from src.conversation_manager import ConversationManager
+from src.model_config import get_context_window_size
 # 新增：环境、文件、执行管理器
 from src.environment_manager import EnvironmentManager, EnvironmentError
 from src.environment_creator import EnvironmentCreator
@@ -979,11 +980,36 @@ async def chat_stream(name: str, req: ChatRequest):
                 total_duration = end_time - start_time
                 first_token_latency = (first_token_time - start_time) if first_token_time else total_duration
 
+                # ====================================================================
+                # 【上下文窗口状态栏】获取 token 使用信息
+                # ====================================================================
+                input_tokens = 0
+                output_tokens = 0
+                context_window = 0
+
+                try:
+                    if instance and hasattr(instance, 'get_token_usage'):
+                        token_usage = instance.get_token_usage()
+                        input_tokens = token_usage.get('input_tokens', 0)
+                        output_tokens = token_usage.get('output_tokens', 0)
+
+                    # 获取模型名称和上下文窗口大小
+                    if instance and hasattr(instance, 'config') and instance.config:
+                        model_service = getattr(instance.config, 'model_service', None)
+                        if model_service:
+                            context_window = get_context_window_size(model_service)
+                except Exception as e:
+                    print(f"[WARN] 获取 token 使用信息失败: {e}")
+
                 metrics = {
                     'type': 'metrics',
                     'first_token_latency': round(first_token_latency * 1000, 0),  # 毫秒
                     'total_tokens': token_count,
-                    'total_duration': round(total_duration * 1000, 0)  # 毫秒
+                    'total_duration': round(total_duration * 1000, 0),  # 毫秒
+                    # 【上下文窗口状态栏】新增字段
+                    'input_tokens': input_tokens,
+                    'output_tokens': output_tokens,
+                    'context_window': context_window,
                 }
                 logger.log_event("metrics", metrics)
                 yield f"data: {json.dumps(metrics, ensure_ascii=False)}\n\n"
