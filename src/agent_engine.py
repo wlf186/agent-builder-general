@@ -118,6 +118,12 @@ class AgentEngine:
         if kb_manager and config.knowledge_bases:
             self._init_retrievers()
 
+        # ====================================================================
+        # 【上下文窗口状态栏】Token 追踪
+        # ====================================================================
+        self._last_input_tokens: int = 0
+        self._last_output_tokens: int = 0
+
     def _refresh_skill_tool_if_needed(self):
         """检查并刷新skill_tool的enabled_skills（用于配置热更新）"""
         if self.skill_tool and hasattr(self._config_ref, 'skills'):
@@ -2001,6 +2007,15 @@ BEST: 编号"""
                     if chunk.content:
                         response_content += chunk.content
 
+                        # 【上下文窗口状态栏】提取 token 使用信息
+                        # 许多 LLM API 在最后一个 chunk 中返回 usage_metadata
+                        if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                            try:
+                                self._last_input_tokens = getattr(chunk.usage_metadata, 'input_tokens', 0) or 0
+                                self._last_output_tokens = getattr(chunk.usage_metadata, 'output_tokens', 0) or 0
+                            except Exception:
+                                pass
+
                         # 检查是否可能是工具调用
                         if not content_started:
                             content_started = True
@@ -2607,3 +2622,15 @@ BEST: 编号"""
                         tool_calls.append({"name": tool.name, "args": {}, "id": f"call_{tool.name}"})
 
         return tool_calls
+
+    def get_token_usage(self) -> dict:
+        """
+        获取最后一次 LLM 调用的 token 使用信息。
+
+        Returns:
+            dict: 包含 input_tokens 和 output_tokens 的字典
+        """
+        return {
+            "input_tokens": self._last_input_tokens,
+            "output_tokens": self._last_output_tokens
+        }
