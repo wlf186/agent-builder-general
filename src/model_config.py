@@ -2,7 +2,7 @@
 模型上下文窗口配置
 
 定义各模型服务提供商的上下文窗口大小预设值。
-优先级：用户配置 > API 返回 > 预设值 > 默认值
+优先级：用户配置 > 预设值 > 默认值
 """
 
 from typing import Optional
@@ -85,12 +85,20 @@ def get_context_window_size(
     # 标准化模型名（小写，移除常见前缀）
     normalized = model_name.lower()
 
-    # 尝试精确匹配或部分匹配
-    for key, value in MODEL_CONTEXT_WINDOWS.items():
-        if key == 'default':
-            continue
-        if key in normalized or normalized in key:
-            return value
+    # 尝试精确匹配或前缀匹配
+    # 按长度降序排序，确保更具体的键优先匹配
+    sorted_keys = sorted(
+        [k for k in MODEL_CONTEXT_WINDOWS.keys() if k != 'default'],
+        key=len,
+        reverse=True
+    )
+    for key in sorted_keys:
+        # 优先检查精确匹配
+        if key == normalized:
+            return MODEL_CONTEXT_WINDOWS[key]
+        # 检查前缀匹配（key 是否是 normalized 的前缀）
+        if normalized.startswith(key + '-') or normalized.startswith(key + '.'):
+            return MODEL_CONTEXT_WINDOWS[key]
 
     return MODEL_CONTEXT_WINDOWS['default']
 
