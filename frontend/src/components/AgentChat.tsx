@@ -69,6 +69,7 @@ import remarkGfm from 'remark-gfm';
 import { PendingFile, FileAttachment, DEFAULT_FILE_CONFIG, formatFileSize, FileUploadConfig, FileContext, UploadedFile, SubAgentCallRecord } from '@/types';
 import { FileUploader, UploadButton } from '@/components/FileUploader';
 import { SubAgentCallCard } from '@/components/SubAgentCallCard';
+import { ContextStatusBar } from '@/components/ContextStatusBar';
 import { uploadFile } from '@/lib/fileApi';
 import { DebugLogger, generateRequestId } from '@/lib/debugLogger';
 
@@ -183,6 +184,13 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
   const [inputValue, setInputValue] = useState('');
   const [hasError, setHasError] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);  // 待发送的文件
+
+  // 上下文窗口状态栏
+  const [contextMetrics, setContextMetrics] = useState({
+    inputTokens: 0,
+    outputTokens: 0,
+    contextWindow: 0,
+  });
 
   // ========== file_context 管理 (T016) ==========
   // 文件上下文：维护已上传文件的 ID 和信息
@@ -917,6 +925,12 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
                   );
                 });
               } else if (data.type === 'metrics') {
+                // 更新上下文窗口状态栏
+                setContextMetrics({
+                  inputTokens: data.input_tokens ?? 0,
+                  outputTokens: data.output_tokens ?? 0,
+                  contextWindow: data.context_window ?? 0,
+                });
                 // 性能指标
                 setMessages((prev) =>
                   prev.map((msg) =>
@@ -1483,6 +1497,12 @@ export function AgentChat({ agentName, shortTermMemory = 5, conversationId, init
 
   return (
     <div className="h-full flex flex-col bg-black/20">
+      {/* 上下文窗口状态栏 */}
+      <ContextStatusBar
+        inputTokens={contextMetrics.inputTokens}
+        outputTokens={contextMetrics.outputTokens}
+        contextWindow={contextMetrics.contextWindow}
+      />
       {/* 消息列表 */}
       <div ref={messagesContainerRef} className="flex-1 overflow-auto p-4 space-y-3">
         {messages.length === 0 ? (
