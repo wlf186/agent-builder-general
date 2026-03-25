@@ -995,9 +995,11 @@ async def chat_stream(name: str, req: ChatRequest):
 
                     # 获取模型名称和上下文窗口大小
                     if instance and hasattr(instance, 'config') and instance.config:
-                        model_service = getattr(instance.config, 'model_service', None)
-                        if model_service:
-                            context_window = get_context_window_size(model_service)
+                        model_service_name = getattr(instance.config, 'model_service', None)
+                        if model_service_name:
+                            service = model_service_registry.get_service(model_service_name)
+                            if service:
+                                context_window = get_context_window_size(service.selected_model)
                 except Exception as e:
                     print(f"[WARN] 获取 token 使用信息失败: {e}")
 
