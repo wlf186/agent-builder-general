@@ -204,6 +204,10 @@ export const translations = {
     filesSelected: "已选择文件",
     maxFileSizeHint: "最大文件大小",
     supportedTypes: "支持的文件类型",
+
+    // Context Status Bar
+    contextUsage: "上下文使用: {percent}%",
+    contextUsageNotSupported: "当前模型不支持 token 统计",
   },
   en: {
     // Common
@@ -407,6 +411,10 @@ export const translations = {
     filesSelected: "Files selected",
     maxFileSizeHint: "Max file size",
     supportedTypes: "Supported file types",
+
+    // Context Status Bar
+    contextUsage: "Context usage: {percent}%",
+    contextUsageNotSupported: "Current model does not support token statistics",
   },
 };
 
