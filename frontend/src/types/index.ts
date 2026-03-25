@@ -332,6 +332,10 @@ export interface MetricsEvent extends StreamEvent {
   first_token_latency: number;
   total_tokens: number;
   total_duration: number;
+  // 上下文窗口状态栏字段
+  input_tokens?: number;
+  output_tokens?: number;
+  context_window?: number;
 }
 
 /**
