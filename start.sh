@@ -7,7 +7,7 @@
 #   --force-langfuse  强制重启 Langfuse 服务
 
 set -e
-cd /home/wremote/claude-dev/agent-builder-general
+cd "$(dirname "$0")"
 
 BACKEND_PORT=20881
 FRONTEND_PORT=20880
