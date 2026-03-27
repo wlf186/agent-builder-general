@@ -124,6 +124,59 @@ playwright-cli eval "window.scrollTo(0, 0)"
 
 ---
 
+## Playwright CLI 指令文件
+
+除了交互式 playwright-cli 命令，项目还支持通过 **Markdown 指令文件** + Claude + playwright-cli 执行预定义的测试流程。
+
+### 使用方式
+
+告诉 Claude 执行某个指令文件：
+```
+运行 frontend/tests/cli/simple/debug-kb.md 测试
+```
+
+Claude 会读取指令文件并通过 playwright-cli 逐步执行。
+
+### 指令文件位置
+
+- `frontend/tests/cli/simple/` — 简单测试（导航 + 截图 + 基本验证）
+- `frontend/tests/cli/medium/` — 中等测试（多步工作流 + 断言 + run-code）
+- `frontend/tests/cli/complex/` — 复杂测试（多页面 + 事件监听 + 多测试用例）
+
+### 指令文件格式
+
+每个 `.md` 文件对应一个原始 `.spec.ts` 测试脚本，遵循统一模板：
+
+```markdown
+# [测试名称]
+
+> 来源: `frontend/tests/[原始文件名].spec.ts`
+> 复杂度: simple | medium | complex
+
+## 前置条件
+- 服务已启动 (localhost:20880)
+
+## 步骤
+1. [操作描述]
+
+## 验证
+- [预期结果]
+```
+
+### 何时使用 CLI 指令文件
+
+- 开发中快速验证功能
+- 一次性 UAT 测试
+- 需要人工判断的探索性测试
+
+### 何时使用 .spec.ts
+
+- CI/CD 自动化回归
+- 需要严格可复现结果
+- 大规模并行测试
+
+---
+
 ## 常见问题排查
 
 | 问题现象 | 可能原因 | 排查方法 |
