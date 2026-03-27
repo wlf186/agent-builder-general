@@ -4,6 +4,55 @@
 
 ---
 
+## ⛔⛔⛔ 绝对红线
+
+### 远程 X11 环境禁止使用 Playwright Test Runner
+
+> **这是一条不可违反的规则，没有任何例外。**
+
+| 场景 | ✅ 正确 | ❌ 禁止 |
+|------|--------|--------|
+| **Headed + 远程 X11** | `node demo.mjs` | `npx playwright test` |
+| **Headless / CI** | `npx playwright test` | - |
+
+**原因**：Test Runner 会自动管理浏览器生命周期，在远程 X11 环境中会导致浏览器意外关闭（"Target page, context or browser has been closed"）。
+
+**项目中受影响的文件**：48 个 `.spec.ts` 文件都使用 Test Runner，**全部禁止在 headed 远程演示中使用**。
+
+### 🛡️ 自动保护机制
+
+项目已在 `playwright.config.ts` 中配置 `globalSetup`，运行任何 `.spec.ts` 测试时会自动检查：
+
+```
+⛔⛔⛔ 绝对红线：远程 X11 环境禁止使用 Playwright Test Runner ⛔⛔⛔
+
+检测到远程显示器: DISPLAY=100.82.215.93:0
+
+原因: Test Runner 会自动关闭浏览器，在远程 X11 中会导致连接断裂
+
+解决方案:
+  ❌ npx playwright test xxx.spec.ts --headed
+  ✅ node xxx.mjs  (直接运行脚本)
+```
+
+**无需记忆**：系统会自动拦截并给出明确提示。
+
+### 执行前环境检查（可选）
+
+如需手动确认环境类型：
+
+```bash
+cd /home/wremote/claude-dev/agent-builder-general/.claude/skills/routine-uat-demo/scripts
+node check-display.mjs
+```
+
+输出说明：
+- `✅ 本地显示器` → 安全，可以使用任何方式
+- `⚠️ 远程显示器` → **必须用** `node xxx.mjs`，**禁止** `npx playwright test`
+- `❌ 无显示器` → 禁止 headed 模式
+
+---
+
 ## 测试前检查清单
 
 | 检查项 | 命令/方法 | 预期结果 |
@@ -55,6 +104,97 @@ const chatInput = page.locator('input[placeholder*="输入消息"], input[placeh
 // ❌ 错误：选中左侧人设编辑框（textarea）
 const chatInput = page.locator('textarea').first();
 ```
+
+---
+
+## ⛔ 绝对红线：远程 X11 环境禁止使用 Playwright Test Runner
+
+> ⚠️ **严重警告**：在远程 X11 环境中运行 headed 模式演示时，**禁止使用 `npx playwright test`**，必须使用 `node xxx.mjs` 直接运行脚本。
+
+### 问题现象
+
+运行 `npx playwright test xxx.spec.ts --headed` 时，浏览器会在测试过程中意外关闭：
+
+```
+Error: locator.click: Target page, context or browser has been closed
+```
+
+### 根本原因
+
+| 问题 | 说明 |
+|------|------|
+| **框架托管生命周期** | Playwright Test Runner 自动管理浏览器生命周期，在测试结束/超时/错误时关闭浏览器 |
+| **远程 X11 脆弱性** | 远程 X11 连接对浏览器关闭事件敏感，框架自动关闭可能导致连接断裂 |
+| **时序问题** | 框架可能在操作进行中触发关闭，导致 "browser has been closed" 错误 |
+
+### 正确做法：使用 Node 脚本直接运行
+
+```bash
+# ✅ 正确：直接运行 Node 脚本
+node demo.mjs
+
+# ❌ 错误：使用 Playwright Test Runner
+npx playwright test demo.spec.ts --headed
+```
+
+### Node 脚本模板（远程 X11 兼容）
+
+```javascript
+import { chromium } from 'playwright';
+
+(async () => {
+  // 1. 检查 DISPLAY
+  const display = process.env.DISPLAY || '';
+  if (!display) {
+    console.error('未检测到 DISPLAY 环境变量');
+    process.exit(1);
+  }
+
+  // 2. 启动浏览器（关键配置）
+  const browser = await chromium.launch({
+    headless: false,
+    slowMo: 100,                              // 减慢操作，提高稳定性
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      `--display=${display}`                  // 指定显示器
+    ]
+  });
+
+  // 3. 使用默认分辨率（X11 兼容）
+  const context = await browser.newContext({ viewport: null });
+  const page = await context.newPage();
+
+  try {
+    // 测试逻辑...
+    await page.goto('http://localhost:20880');
+    await page.waitForLoadState('networkidle');
+
+    // 4. 触发重绘（X11 远程投屏必做）
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    // 更多操作...
+
+  } finally {
+    // 5. 手动清理（精确控制）
+    await page.close();
+    await context.close();
+    await browser.close();
+  }
+})();
+```
+
+### 关键差异对比
+
+| 项目 | Node 脚本 (✅) | Playwright Test (❌) |
+|------|---------------|---------------------|
+| 运行方式 | `node demo.mjs` | `npx playwright test` |
+| 浏览器控制 | 手动 `chromium.launch()` | 框架自动管理 |
+| viewport | `{ viewport: null }` 默认 | 框架默认固定尺寸 |
+| slowMo | 设置 `slowMo: 100` | 无 |
+| 浏览器关闭 | 手动 `cleanup()` 精确控制 | 框架自动（可能过早） |
+| 生命周期 | 完全可控 | 框架托管 |
 
 ---
 

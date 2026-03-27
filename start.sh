@@ -1,13 +1,20 @@
 #!/bin/bash
 
 # Agent Builder 系统启动脚本
-# 用法: ./start.sh [--skip-deps]
+# 用法: ./start.sh [--skip-deps] [--force] [--force-langfuse]
+#   --skip-deps       跳过依赖检查
+#   --force           强制重启占用端口的服务（不含 Langfuse）
+#   --force-langfuse  强制重启 Langfuse 服务
 
 set -e
 cd /home/wremote/claude-dev/agent-builder-general
 
 BACKEND_PORT=20881
 FRONTEND_PORT=20880
+
+# 参数标志
+FORCE_MODE=false
+FORCE_LANGFUSE=false
 
 # 颜色定义
 RED='\033[0;31m'
@@ -28,14 +35,45 @@ check_port() {
     return 1  # 端口空闲
 }
 
+# 强制释放端口（杀掉占用进程）
+force_release_port() {
+    local port=$1
+    local pid=$(lsof -t -i :$port 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+        log_warn "强制释放端口 $port (PID: $pid)"
+        kill -9 $pid 2>/dev/null || true
+        sleep 1  # 等待端口释放
+        if check_port $port; then
+            log_error "无法释放端口 $port"
+            return 1
+        fi
+        log_info "端口 $port 已释放"
+    fi
+    return 0
+}
+
 # 等待服务启动
+# 用法: wait_for_service <port> <name> [manifest_file]
+#   - port: 服务端口
+#   - name: 服务名称（用于日志）
+#   - manifest_file: (可选) 构建产物路径，仅前端需要
 wait_for_service() {
     local port=$1
     local name=$2
-    local max_wait=15
+    local manifest_file=$3  # 可选，仅前端需要
+    local max_wait=30
     local count=0
 
     while [ $count -lt $max_wait ]; do
+        # 如果指定了 manifest_file，先检查构建产物
+        if [ -n "$manifest_file" ]; then
+            if [ ! -f "$manifest_file" ]; then
+                sleep 1
+                ((count++))
+                continue
+            fi
+        fi
+        # 检查 HTTP 响应
         if curl -s "http://localhost:$port" > /dev/null 2>&1; then
             return 0
         fi
@@ -57,8 +95,12 @@ start_backend() {
 
     # 检查端口
     if check_port $BACKEND_PORT; then
-        log_warn "后端端口 $BACKEND_PORT 已被占用"
-        return 0
+        if [ "$FORCE_MODE" = true ]; then
+            force_release_port $BACKEND_PORT || exit 1
+        else
+            log_warn "后端端口 $BACKEND_PORT 已被占用 (使用 --force 强制重启)"
+            return 0
+        fi
     fi
 
     # 启动后端
@@ -100,8 +142,15 @@ start_langfuse() {
 
     # 检查端口
     if check_port $LANGFUSE_PORT; then
-        log_warn "Langfuse 端口 $LANGFUSE_PORT 已被占用"
-        return 0
+        if [ "$FORCE_LANGFUSE" = true ]; then
+            # Langfuse 是容器服务，需要用 compose 停止
+            log_warn "Langfuse 端口 $LANGFUSE_PORT 已被占用，尝试停止容器..."
+            $compose_cmd -f docker-compose.langfuse.yml down 2>/dev/null || true
+            sleep 2
+        else
+            log_warn "Langfuse 端口 $LANGFUSE_PORT 已被占用 (使用 --force-langfuse 强制重启)"
+            return 0
+        fi
     fi
 
     # 检查 docker-compose.langfuse.yml 是否存在
@@ -133,8 +182,12 @@ start_docs_site() {
 
     # 检查端口
     if check_port $DOCS_SITE_PORT; then
-        log_warn "文档站点端口 $DOCS_SITE_PORT 已被占用"
-        return 0
+        if [ "$FORCE_MODE" = true ]; then
+            force_release_port $DOCS_SITE_PORT || return 1
+        else
+            log_warn "文档站点端口 $DOCS_SITE_PORT 已被占用 (使用 --force 强制重启)"
+            return 0
+        fi
     fi
 
     # 检查 docs-site 目录是否存在
@@ -203,9 +256,13 @@ start_frontend() {
 
     # 检查端口
     if check_port $FRONTEND_PORT; then
-        log_warn "前端端口 $FRONTEND_PORT 已被占用"
-        cd ..
-        return 0
+        if [ "$FORCE_MODE" = true ]; then
+            force_release_port $FRONTEND_PORT || { cd ..; return 1; }
+        else
+            log_warn "前端端口 $FRONTEND_PORT 已被占用 (使用 --force 强制重启)"
+            cd ..
+            return 0
+        fi
     fi
 
     # 启动前端
@@ -215,8 +272,8 @@ start_frontend() {
 
     cd ..
 
-    # 等待启动
-    if wait_for_service $FRONTEND_PORT "前端"; then
+    # 等待启动（前端需要等待 Next.js 构建完成）
+    if wait_for_service $FRONTEND_PORT "前端" "frontend/.next/server/pages-manifest.json"; then
         log_info "前端启动成功 (http://localhost:$FRONTEND_PORT)"
     else
         log_error "前端启动超时，请检查 frontend.log"
@@ -226,9 +283,22 @@ start_frontend() {
 
 # 主流程
 main() {
+    # 解析参数
+    SKIP_DEPS=false
+    for arg in "$@"; do
+        case $arg in
+            --skip-deps) SKIP_DEPS=true ;;
+            --force) FORCE_MODE=true ;;
+            --force-langfuse) FORCE_LANGFUSE=true ;;
+        esac
+    done
+
     echo ""
     echo "========================================"
     echo "   Agent Builder 系统启动"
+    if [ "$FORCE_MODE" = true ] || [ "$FORCE_LANGFUSE" = true ]; then
+        echo "   [强制模式: --force=$FORCE_MODE, --force-langfuse=$FORCE_LANGFUSE]"
+    fi
     echo "========================================"
     echo ""
 
@@ -236,11 +306,19 @@ main() {
     echo ""
     start_backend
     echo ""
-    start_docs_site $1
+    if [ "$SKIP_DEPS" = true ]; then
+        start_docs_site --skip-deps
+    else
+        start_docs_site
+    fi
     echo ""
     clear_frontend_cache
     echo ""
-    start_frontend $1
+    if [ "$SKIP_DEPS" = true ]; then
+        start_frontend --skip-deps
+    else
+        start_frontend
+    fi
 
     echo ""
     echo "========================================"
@@ -256,4 +334,4 @@ main() {
     echo "========================================"
 }
 
-main $1
+main "$@"

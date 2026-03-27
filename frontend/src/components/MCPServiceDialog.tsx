@@ -201,17 +201,17 @@ export function MCPServiceDialog({ isOpen, onClose, onSave, service }: MCPServic
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   return (
     <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-        onClick={onClose}
-      >
+      {isOpen && (
+        <motion.div
+          key="mcp-dialog-overlay"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={onClose}
+        >
         <motion.div
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -450,6 +450,7 @@ export function MCPServiceDialog({ isOpen, onClose, onSave, service }: MCPServic
           </Card>
         </motion.div>
       </motion.div>
+      )}
 
       {/* 诊断结果弹窗 */}
       <MCPDiagnosticResult
