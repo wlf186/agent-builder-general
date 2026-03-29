@@ -27,8 +27,11 @@
 ### 快速上手
 
 ```bash
-# 打开浏览器
+# Headless 模式（默认）
 playwright-cli open http://localhost:20880
+
+# Headed 模式（需要 X11/Display 环境，必须显式指定 --headed）
+playwright-cli open http://localhost:20880 --headed
 
 # 查看页面快照（获取元素引用编号）
 playwright-cli snapshot
@@ -41,6 +44,17 @@ playwright-cli press Enter
 # 关闭浏览器
 playwright-cli close
 ```
+
+### Headed 模式注意事项
+
+> playwright-cli **不会自动检测 DISPLAY 环境变量**，即使 `echo $DISPLAY` 有值，不加 `--headed` 仍以 headless 模式启动。
+
+| 要点 | 说明 |
+|------|------|
+| 启动参数 | 必须加 `--headed`：`playwright-cli open <url> --headed` |
+| 可用浏览器 | `msedge`（系统已安装，默认）；`chrome` 未安装，`--browser=chrome` 会报错 |
+| X11 渲染 | 首次渲染可能断裂，执行 `playwright-cli eval "window.scrollTo(0, 0)"` 触发重绘 |
+| Claude Code 沙箱 | playwright-cli 需要绕过沙箱（Claude 执行时自动处理），否则报 `bwrap: Operation not permitted` |
 
 详细命令参考：在对话中使用 `/playwright-cli` 技能。
 
@@ -181,6 +195,10 @@ Claude 会读取指令文件并通过 playwright-cli 逐步执行。
 
 | 问题现象 | 可能原因 | 排查方法 |
 |----------|----------|----------|
+| `bwrap: Operation not permitted` | Claude Code 沙箱限制浏览器进程 | 确保命令绕过沙箱执行 |
+| `Chromium 'chrome' is not found` | 系统未安装 Chrome | 使用默认 `msedge` 或安装 Chrome |
+| headed 模式实际以 headless 启动 | 未加 `--headed` 参数 | 加 `--headed` 参数 |
+| X11 远程投屏页面渲染断裂 | 首次渲染未触发重绘 | `playwright-cli eval "window.scrollTo(0, 0)"` |
 | API 返回参数错误 | 后端未重启加载新代码 | 重启后端服务 |
 | 空响应 | LLM 调用失败 | 检查模型服务配置 |
 | 选择器找不到元素 | 使用了错误的选择器 | 使用 `input[type="text"]` |

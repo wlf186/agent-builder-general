@@ -57,7 +57,10 @@ git push https://${CCGHTK}@github.com/wlf186/agent-builder-general.git main
 
 **Playwright**:
 - **一律使用 playwright-cli 技能**，禁止 Test Runner
-- **X11 渲染问题**: `waitForLoadState('networkidle')` 后执行 `await page.evaluate(() => window.scrollTo(0, 0))` 触发重绘
+- **Headed 模式需显式指定**: 不会自动检测 DISPLAY 变量，必须加 `--headed` 参数：`playwright-cli open http://localhost:20880 --headed`
+- **沙箱限制**: playwright-cli 命令需要绕过沙箱执行（`dangerouslyDisableSandbox: true`），否则浏览器进程无法启动
+- **可用浏览器**: `msedge`（默认，已安装），chrome 未安装
+- **X11 渲染问题**: 页面加载后执行 `playwright-cli eval "window.scrollTo(0, 0)"` 触发重绘
 
 详见 [docs/references/testing-guide.md](docs/references/testing-guide.md)
 
