@@ -46,6 +46,7 @@
 ├── frontend/                # Next.js 15 前端
 │   ├── src/
 │   │   ├── app/             # App Router 结构
+│   │   │   ├── api/redirect/langfuse/route.ts  # Langfuse 服务端重定向
 │   │   ├── components/      # React 组件
 │   │   ├── hooks/           # React Hooks
 │   │   ├── lib/             # 工具库

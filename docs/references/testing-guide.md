@@ -45,13 +45,22 @@ playwright-cli press Enter
 playwright-cli close
 ```
 
+### Headed vs Headless 选择
+
+| 场景 | 模式 | 命令 |
+|------|------|------|
+| 开发后的例行测试、验证 | headless（默认） | `playwright-cli open <url>` |
+| 用户要求"演示"、"show me"、"看一下效果" | headed | `playwright-cli open <url> --headed` |
+
 ### Headed 模式注意事项
 
-> playwright-cli **不会自动检测 DISPLAY 环境变量**，即使 `echo $DISPLAY` 有值，不加 `--headed` 仍以 headless 模式启动。
+> playwright-cli **不会自动检测 DISPLAY 环境变量**，即使 `echo $DISPLAY` 有值，不加 `--headed` 仍以 headless 模式启动。使用 headed 前需先检查 DISPLAY 变量。
 
 | 要点 | 说明 |
 |------|------|
+| 触发条件 | 仅在用户明确要求可视化展示时使用，日常测试默认 headless |
 | 启动参数 | 必须加 `--headed`：`playwright-cli open <url> --headed` |
+| DISPLAY 检查 | 有值 → 使用 headed；无值 → 回退 headless 并告知用户 |
 | 可用浏览器 | `msedge`（系统已安装，默认）；`chrome` 未安装，`--browser=chrome` 会报错 |
 | X11 渲染 | 首次渲染可能断裂，执行 `playwright-cli eval "window.scrollTo(0, 0)"` 触发重绘 |
 | Claude Code 沙箱 | playwright-cli 需要绕过沙箱（Claude 执行时自动处理），否则报 `bwrap: Operation not permitted` |

@@ -57,12 +57,23 @@ git push https://${CCGHTK}@github.com/wlf186/agent-builder-general.git main
 
 **Playwright**:
 - **一律使用 playwright-cli 技能**，禁止 Test Runner
-- **Headed 模式需显式指定**: 不会自动检测 DISPLAY 变量，必须加 `--headed` 参数：`playwright-cli open http://localhost:20880 --headed`
+- **默认 headless 模式**：开发后的例行测试、验证等场景，直接 `playwright-cli open <url>` 即可，无需 headed
+- **Headed 模式触发条件**：仅在用户明确要求"演示"、"show me"、"看一下效果"等可视化展示场景下使用。触发时：
+  1. 先检查 `echo $DISPLAY` 是否有值
+  2. 有值 → 加 `--headed` 参数：`playwright-cli open <url> --headed`
+  3. 无值 → 回退 headless 模式并告知用户无显示环境
+  4. playwright-cli **不会自动检测 DISPLAY 变量**，必须手动判断
 - **沙箱限制**: playwright-cli 命令需要绕过沙箱执行（`dangerouslyDisableSandbox: true`），否则浏览器进程无法启动
 - **可用浏览器**: `msedge`（默认，已安装），chrome 未安装
 - **X11 渲染问题**: 页面加载后执行 `playwright-cli eval "window.scrollTo(0, 0)"` 触发重绘
 
 详见 [docs/references/testing-guide.md](docs/references/testing-guide.md)
+
+**外部服务链接**:
+- **禁止硬编码 `localhost`** — 指向本机其他端口的外部服务（如 Langfuse `:3000`）不能写死 `localhost`，远程访问时会跳转到客户端本机
+- **使用服务端重定向 API** — 在 `frontend/src/app/api/redirect/<service>/route.ts` 创建重定向路由，从请求的 `Host` 头提取 hostname 动态构造目标 URL
+- **不能用 Next.js rewrite** — 同为 Next.js 的服务（如 Langfuse）`/_next` 路径会冲突
+- **不能依赖客户端 JS** — `onClick`/`useEffect` 可能因 hydration 时序问题不触发，`href` 必须本身正确
 
 ---
 

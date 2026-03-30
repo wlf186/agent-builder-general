@@ -122,6 +122,15 @@
 | GET | `/health` | 健康检查 |
 | GET | `/api/system/check-conda` | 检查 Conda 安装 |
 
+## Frontend Redirect (前端重定向)
+
+> 前端 Next.js API 路由，用于解决外部服务链接的 hostname 动态解析问题。
+> 详见 [CLAUDE.md 开发提示 - 外部服务链接](../../CLAUDE.md) 中的设计说明。
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| GET | `/api/redirect/langfuse` | 307 重定向到 Langfuse（根据请求 Host 头动态构造 `http://{hostname}:3000`） |
+
 ## Debug & Logging
 
 | 方法 | 端点 | 说明 |

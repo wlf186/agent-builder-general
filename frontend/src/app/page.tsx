@@ -221,8 +221,6 @@ export default function Home() {
   const [editingKb, setEditingKb] = useState<KnowledgeBase | null>(null);
   const [sidebarResourcesExpanded, setSidebarResourcesExpanded] = useState(true);
 
-  // Langfuse URL - dynamically set to support remote access
-  const [langfuseUrl, setLangfuseUrl] = useState("http://localhost:3000");  // 【AC130 新增】
 
   // 巻加历史会话相关状态
   const [conversationDrawerOpen, setConversationDrawerOpen] = useState(false);
@@ -231,11 +229,6 @@ export default function Home() {
 
   // 计算已选中的工具总数
   const totalSelectedTools = selectedMcpServices.length + selectedSkills.length + selectedSubAgents.length + selectedKnowledgeBases.length;
-
-  // Set Langfuse URL dynamically for remote access
-  useEffect(() => {
-    setLangfuseUrl(`http://${window.location.hostname}:3000`);
-  }, []);
 
   // 环境状态管理 - 异步环境初始化功能
   const { isReady: isEnvironmentReady, isCreating: isEnvironmentCreating } =
@@ -1157,7 +1150,7 @@ export default function Home() {
                   <ExternalLink size={12} className="text-gray-500 group-hover:text-gray-400" />
                 </a>
                 <a
-                  href={langfuseUrl}
+                  href="/api/redirect/langfuse"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 group cursor-pointer"
