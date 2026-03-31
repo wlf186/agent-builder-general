@@ -37,7 +37,7 @@ class ModelProviderTester:
             return False, [], "API Key 不能为空"
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, proxy=None) as client:
                 # 智谱AI使用OpenAI兼容接口获取模型列表
                 models_url = f"{base_url.rstrip('/')}/models"
                 response = await client.get(
@@ -80,7 +80,7 @@ class ModelProviderTester:
             return False, [], "API Key 不能为空"
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, proxy=None) as client:
                 # 阿里云百炼使用OpenAI兼容接口获取模型列表
                 models_url = f"{base_url.rstrip('/')}/models"
                 response = await client.get(
@@ -122,7 +122,7 @@ class ModelProviderTester:
     async def _test_ollama(base_url: str) -> Tuple[bool, List[str], str]:
         """测试Ollama连接"""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, proxy=None) as client:
                 # Ollama获取模型列表的API
                 # 尝试两种可能的API路径
                 tags_url = f"{base_url.rstrip('/')}/api/tags"
