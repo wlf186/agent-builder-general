@@ -1,5 +1,5 @@
 """
-Langfuse 追踪器 - 非阻塞式全链路观测 (Langfuse SDK)
+Langfuse 追踪器 - 非阻塞式全链路观测 (Langfuse SDK v4)
 
 职责：
 1. 创建 Trace/Span 用于对话追踪
@@ -12,9 +12,8 @@ Langfuse 追踪器 - 非阻塞式全链路观测 (Langfuse SDK)
 - Deferred flush: 定期刷新到服务器
 - Graceful degradation: Langfuse 不可用时静默失败
 
-文件版本: 3.0 (修复 end_span/end_trace 空实现问题)
+文件版本: 4.0
 创建日期: 2026-03-17
-更新日期: 2026-03-19
 """
 
 import os
@@ -36,11 +35,15 @@ except ImportError:
 class LangfuseTracer:
     """
     Langfuse 追踪器 - 存储对象引用以支持更新操作
-
-    关键修复：
-    - create_trace/create_span 立即创建对象并存储引用
-    - end_span/end_trace 调用对象的 .end()/.update() 方法
     """
+
+    _SPAN_TYPE_MAP = {
+        "DEFAULT": "span",
+        "LLM": "generation",
+        "TOOL": "tool",
+        "AGENT": "agent",
+        "CHAIN": "chain",
+    }
 
     _instance: Optional['LangfuseTracer'] = None
     _lock = threading.Lock()
@@ -78,8 +81,9 @@ class LangfuseTracer:
         self._client: Optional[Langfuse] = None
 
         # 存储对象引用以支持更新操作
-        self._traces: Dict[str, Any] = {}  # trace_id -> trace object
-        self._spans: Dict[str, Any] = {}   # span_id -> span object
+        self._traces: Dict[str, Any] = {}  # trace_id -> observation object
+        self._spans: Dict[str, Any] = {}   # span_id -> observation object
+        self._hex_trace_ids: Dict[str, str] = {}  # trace_id -> hex_trace_id cache
         self._objects_lock = threading.Lock()
 
         self._initialized = True
@@ -170,25 +174,31 @@ class LangfuseTracer:
             return None
 
         try:
-            # 立即创建 trace 对象
-            trace = client.trace(
-                id=trace_id,
+            root_obs = client.start_observation(
                 name=name,
-                user_id=user_id,
-                session_id=session_id,
-                metadata=metadata or {},
-                tags=tags or [],
+                as_type="chain",
                 input=input or {},
+                metadata={
+                    **(metadata or {}),
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "tags": tags or [],
+                },
             )
 
-            # 存储引用
+            # Get the trace_id assigned by Langfuse server from the root observation
+            hex_trace_id = root_obs.trace_id
+
+            # 存储引用和 hex_trace_id 缓存
             with self._objects_lock:
-                self._traces[trace_id] = trace
+                self._traces[trace_id] = root_obs
+                self._hex_trace_ids[trace_id] = hex_trace_id
 
             self._ensure_flush_task_started()
 
             return {
                 'id': trace_id,
+                'observation_id': root_obs.id,
                 'name': name,
                 'user_id': user_id,
                 'session_id': session_id,
@@ -204,11 +214,7 @@ class LangfuseTracer:
         status: Optional[str] = "success",
         error: Optional[Dict] = None
     ):
-        """
-        结束 Trace - 调用 trace.update() 更新输出
-
-        这是之前缺失的实现！
-        """
+        """结束 Trace"""
         if not self.enabled:
             return
 
@@ -219,22 +225,23 @@ class LangfuseTracer:
             return
 
         try:
-            # 更新 trace 的输出
             update_kwargs = {}
             if output:
                 update_kwargs['output'] = output
             if error:
                 update_kwargs['metadata'] = {'error': error, 'status': status}
+            if status == "error":
+                update_kwargs['level'] = 'ERROR'
+                update_kwargs['status_message'] = str(error) if error else 'error'
 
             if update_kwargs:
                 trace.update(**update_kwargs)
 
-            # 从存储中移除
+            trace.end()
+
             with self._objects_lock:
                 self._traces.pop(trace_id, None)
-
-            # 注意：不在此处同步 flush，由后台 _flush_loop 定期处理
-            # 同步 flush 会阻塞 generator 完成，导致前端在收到最后内容后等待
+                self._hex_trace_ids.pop(trace_id, None)
 
         except Exception as e:
             print(f"[Langfuse] 结束 trace 失败: {e}")
@@ -248,43 +255,51 @@ class LangfuseTracer:
         trace_id: str,
         span_name: str,
         parent_observation_id: Optional[str] = None,
-        start_time: Optional[float] = None,
         metadata: Optional[Dict] = None,
         tags: Optional[List[str]] = None,
         input: Optional[Dict] = None,
         span_type: Optional[str] = "DEFAULT"
-    ) -> Optional[str]:
+    ) -> Optional[tuple]:
         """
         创建 Span 并存储引用
 
         Returns:
-            span_id string
+            (span_id, observation_id) tuple, or None on failure
         """
         if not self.enabled:
             return None
 
-        with self._objects_lock:
-            trace = self._traces.get(trace_id)
-
-        if trace is None:
-            # 如果 trace 不存在，尝试获取客户端并创建
-            client = self._get_client()
-            if client is None:
-                return None
-            trace = client.trace(id=trace_id)
+        client = self._get_client()
+        if client is None:
+            return None
 
         try:
             span_id = f"{trace_id}-{span_name}-{int(time.time() * 1000)}"
 
-            # 立即创建 span 对象
-            # 注意: start_time 使用 Unix 时间戳，由 Langfuse SDK 内部转换为 datetime
-            # 不使用 datetime.utcnow() 避免时区问题
-            span = trace.span(
-                id=span_id,
-                name=span_name,
-                input=input or {},
-                metadata=metadata or {},
-            )
+            # 使用缓存的 hex_trace_id，避免重复计算
+            with self._objects_lock:
+                hex_trace_id = self._hex_trace_ids.get(trace_id)
+            if hex_trace_id is None:
+                # Don't use create_trace_id() to avoid ghost traces
+                # If no hex_trace_id in cache, create_trace was likely not called — skip this span
+                return None
+
+            trace_context = {"trace_id": hex_trace_id}
+            if parent_observation_id:
+                trace_context["parent_span_id"] = parent_observation_id
+
+            as_type = self._SPAN_TYPE_MAP.get(span_type, "span")
+
+            obs_kwargs = {
+                "trace_context": trace_context,
+                "name": span_name,
+                "as_type": as_type,
+                "input": input or {},
+                "metadata": metadata or {},
+            }
+
+            span = client.start_observation(**obs_kwargs)
+            real_obs_id = span.id
 
             # 存储引用
             with self._objects_lock:
@@ -292,7 +307,7 @@ class LangfuseTracer:
 
             self._ensure_flush_task_started()
 
-            return span_id
+            return (span_id, real_obs_id)
         except Exception as e:
             print(f"[Langfuse] 创建 span 失败: {e}")
             return None
@@ -304,16 +319,10 @@ class LangfuseTracer:
         output: Optional[Dict] = None,
         status: Optional[str] = "success",
         error: Optional[Dict] = None,
-        end_time: Optional[float] = None,
         usage: Optional[Dict[str, int]] = None,
         level: Optional[str] = None,
-        exception: Optional[Exception] = None
     ):
-        """
-        结束 Span - 调用 span.end() 更新输出
-
-        这是之前缺失的实现！
-        """
+        """结束 Span"""
         if not self.enabled:
             return
 
@@ -324,19 +333,23 @@ class LangfuseTracer:
             return
 
         try:
-            # 构建 end 参数
-            end_kwargs = {}
+            update_kwargs = {}
             if output:
-                end_kwargs['output'] = output
+                update_kwargs['output'] = output
             if usage:
-                end_kwargs['usage'] = usage
+                update_kwargs['usage_details'] = usage
             if level:
-                end_kwargs['level'] = level
+                update_kwargs['level'] = level
+            if status == "error":
+                update_kwargs['level'] = 'ERROR'
+                if error:
+                    update_kwargs['status_message'] = str(error)
 
-            # 调用 span.end() 结束 span
-            span.end(**end_kwargs)
+            if update_kwargs:
+                span.update(**update_kwargs)
 
-            # 从存储中移除
+            span.end()
+
             with self._objects_lock:
                 self._spans.pop(span_id, None)
 
@@ -386,13 +399,11 @@ class LangfuseTracer:
                 return self
 
             async def __aexit__(self, exc_type, exc_val, exc_tb):
-                end_time = time.time()
                 self.tracer.end_span(
                     trace_id=self.trace_id,
                     span_id=self.span_id,
                     output=getattr(self, 'output', {}),
                     status="success" if exc_type is None else "error",
-                    end_time=end_time
                 )
 
         context = LLMSpanContext(self, trace_id, span_id, start_time)
@@ -441,13 +452,11 @@ class LangfuseTracer:
                 return self
 
             async def __aexit__(self, exc_type, exc_val, exc_tb):
-                end_time = time.time()
                 self.tracer.end_span(
                     trace_id=self.trace_id,
                     span_id=self.span_id,
                     output={"result": getattr(self, 'result', None)},
                     status="success" if exc_type is None else "error",
-                    end_time=end_time
                 )
 
         context = ToolSpanContext(self, trace_id, span_id, start_time)
