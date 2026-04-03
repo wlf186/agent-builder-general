@@ -2020,17 +2020,6 @@ BEST: 编号"""
                     if chunk.content:
                         response_content += chunk.content
 
-                        # 【上下文窗口状态栏】提取 token 使用信息
-                        # 许多 LLM API 在最后一个 chunk 中返回 usage_metadata
-                        if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
-                            try:
-                                iteration_input_tokens = getattr(chunk.usage_metadata, 'input_tokens', 0) or 0
-                                iteration_output_tokens = getattr(chunk.usage_metadata, 'output_tokens', 0) or 0
-                                self._last_input_tokens = iteration_input_tokens
-                                self._last_output_tokens = iteration_output_tokens
-                            except Exception:
-                                pass
-
                         # 检查是否可能是工具调用
                         if not content_started:
                             content_started = True
@@ -2066,6 +2055,17 @@ BEST: 编号"""
                         elif buffering and might_be_tool_call:
                             # 检测到工具调用，继续缓冲
                             buffer_content += chunk.content
+
+                    # 【上下文窗口状态栏】提取 token 使用信息
+                    # 许多 LLM API 在最后一个 chunk 中返回 usage_metadata（content 通常为空）
+                    if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
+                        try:
+                            iteration_input_tokens = getattr(chunk.usage_metadata, 'input_tokens', 0) or 0
+                            iteration_output_tokens = getattr(chunk.usage_metadata, 'output_tokens', 0) or 0
+                            self._last_input_tokens = iteration_input_tokens
+                            self._last_output_tokens = iteration_output_tokens
+                        except Exception:
+                            pass
 
             # ============================================================================
             # 【AC130-202603150000】LLM 流式输出异常捕获
