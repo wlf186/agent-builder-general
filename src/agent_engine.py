@@ -683,7 +683,7 @@ Returns:
         # 【Langfuse 追踪】RAG 检索阶段 (Embedding + Vector Search)
         # ====================================================================
         if is_langfuse_enabled() and trace_id:
-            rag_retrieve_span_id = langfuse_tracer.create_span(
+            rag_retrieve_result = langfuse_tracer.create_span(
                 trace_id=trace_id,
                 span_name="rag.retrieve",
                 span_type="EMBEDDING",
@@ -694,6 +694,7 @@ Returns:
                     "score_threshold": config.score_threshold
                 }
             )
+            rag_retrieve_span_id = rag_retrieve_result[0] if isinstance(rag_retrieve_result, tuple) else None
 
         # 从所有挂载的知识库中检索
         for kb_id in self.config.knowledge_bases:
@@ -737,7 +738,7 @@ Returns:
         # ====================================================================
         rag_rerank_span_id = None
         if is_langfuse_enabled() and trace_id:
-            rag_rerank_span_id = langfuse_tracer.create_span(
+            rag_rerank_result = langfuse_tracer.create_span(
                 trace_id=trace_id,
                 span_name="rag.rerank",
                 span_type="DEFAULT",
@@ -745,6 +746,7 @@ Returns:
                     "results_count": len(all_results)
                 }
             )
+            rag_rerank_span_id = rag_rerank_result[0] if isinstance(rag_rerank_result, tuple) else None
 
         # 按相似度排序，取 Top-K
         all_results.sort(key=lambda x: x.score, reverse=True)
@@ -783,7 +785,7 @@ Returns:
         # ====================================================================
         rag_format_span_id = None
         if is_langfuse_enabled() and trace_id:
-            rag_format_span_id = langfuse_tracer.create_span(
+            rag_format_result = langfuse_tracer.create_span(
                 trace_id=trace_id,
                 span_name="rag.format",
                 span_type="DEFAULT",
@@ -791,6 +793,7 @@ Returns:
                     "results_count": len(top_results)
                 }
             )
+            rag_format_span_id = rag_format_result[0] if isinstance(rag_format_result, tuple) else None
 
         # 格式化为上下文
         context = self._format_retrieved_context(top_results)
@@ -980,12 +983,13 @@ Returns:
             rag_tool_span_id = None
             if is_langfuse_enabled() and trace_id:
                 langfuse_tracer = get_langfuse_tracer()
-                rag_tool_span_id = langfuse_tracer.create_span(
+                rag_tool_result = langfuse_tracer.create_span(
                     trace_id=trace_id,
                     span_name="tool.rag_retrieve",
                     span_type="TOOL",
                     input={"query": query[:500], "top_k": top_k}
                 )
+                rag_tool_span_id = rag_tool_result[0] if isinstance(rag_tool_result, tuple) else None
 
             try:
                 all_results = []
@@ -1806,8 +1810,9 @@ BEST: 编号"""
         # ====================================================================
         langfuse_tracer = get_langfuse_tracer()
         langfuse_trace_id = trace_id or f"trace-{self.config.name}-{int(__import__('time').time()*1000)}"
+        root_obs_id = None
         if is_langfuse_enabled():
-            langfuse_tracer.create_trace(
+            trace_info = langfuse_tracer.create_trace(
                 trace_id=langfuse_trace_id,
                 name=f"agent:{self.config.name}",
                 user_id=self.config.name,
@@ -1815,6 +1820,7 @@ BEST: 编号"""
                 input={"query": user_input},
                 metadata={"agent": self.config.name}
             )
+            root_obs_id = trace_info.get('observation_id') if trace_info else None
 
         # 构建系统提示
         system_prompt = self._get_system_prompt()
@@ -1934,6 +1940,9 @@ BEST: 编号"""
         while iteration < max_iterations:
             iteration += 1
             tool_calls_info = []
+            llm_obs_id = None
+            iteration_input_tokens = 0
+            iteration_output_tokens = 0
 
             # ============================================================
             # 【流式输出核心 - 智能缓冲策略】
@@ -1972,6 +1981,7 @@ BEST: 编号"""
             # 【Langfuse 追踪】创建 LLM Span
             # ====================================================================
             llm_span_id = None
+            llm_obs_id = None
             if is_langfuse_enabled():
                 # 获取模型服务名称（新版 model_service 优先，兼容旧版 llm_provider）
                 model_service_name = self.config.model_service or (
@@ -1979,16 +1989,19 @@ BEST: 编号"""
                 )
                 # 准备输入内容（截断前1000字符）
                 input_preview = str(messages)[:1000] if messages else ""
-                llm_span_id = langfuse_tracer.create_span(
+                llm_result = langfuse_tracer.create_span(
                     trace_id=langfuse_trace_id,
                     span_name=f"llm.{model_service_name}",
                     span_type="LLM",
+                    parent_observation_id=root_obs_id,
                     input={
                         "messages_count": len(messages),
                         "iteration": iteration,
                         "messages_preview": input_preview
                     }
                 )
+                llm_span_id = llm_result[0] if isinstance(llm_result, tuple) else None
+                llm_obs_id = llm_result[1] if isinstance(llm_result, tuple) else None
 
             # ============================================================================
             # 【AC130-202603150000】LLM 流式输出异常处理
@@ -2011,8 +2024,10 @@ BEST: 编号"""
                         # 许多 LLM API 在最后一个 chunk 中返回 usage_metadata
                         if hasattr(chunk, 'usage_metadata') and chunk.usage_metadata:
                             try:
-                                self._last_input_tokens = getattr(chunk.usage_metadata, 'input_tokens', 0) or 0
-                                self._last_output_tokens = getattr(chunk.usage_metadata, 'output_tokens', 0) or 0
+                                iteration_input_tokens = getattr(chunk.usage_metadata, 'input_tokens', 0) or 0
+                                iteration_output_tokens = getattr(chunk.usage_metadata, 'output_tokens', 0) or 0
+                                self._last_input_tokens = iteration_input_tokens
+                                self._last_output_tokens = iteration_output_tokens
                             except Exception:
                                 pass
 
@@ -2075,17 +2090,6 @@ BEST: 编号"""
                 # 重新抛出异常，让后端 logger 记录
                 raise
 
-            # 【Langfuse 追踪】结束 LLM Span (成功)
-            if llm_span_id and is_langfuse_enabled():
-                langfuse_tracer.end_span(
-                    trace_id=langfuse_trace_id,
-                    span_id=llm_span_id,
-                    output={
-                        "response_length": len(response_content),
-                        "response_preview": response_content[:1000] if response_content else ""
-                    }
-                )
-
             # 如果在缓冲模式，检查是否有工具调用
             if buffering and not started_streaming:
                 # 检查缓冲内容是否包含工具调用
@@ -2121,6 +2125,31 @@ BEST: 编号"""
 
                 mock_response = MockResponse(response_content)
                 tool_calls = self._parse_tool_calls_enhanced(mock_response)
+
+            # 【Langfuse 追踪】结束 LLM Span (成功) — 在 tool_calls 解析后，包含工具调用信息
+            if llm_span_id and is_langfuse_enabled():
+                llm_output = {
+                    "response_length": len(response_content),
+                    "response_preview": response_content[:1000] if response_content else ""
+                }
+                if tool_calls:
+                    llm_output["tool_calls"] = [
+                        {"name": tc.get("name"), "call_id": tc.get("call_id")}
+                        for tc in tool_calls
+                    ]
+                usage_data = None
+                if iteration_input_tokens > 0 or iteration_output_tokens > 0:
+                    usage_data = {
+                        "input": iteration_input_tokens,
+                        "output": iteration_output_tokens,
+                        "total": iteration_input_tokens + iteration_output_tokens,
+                    }
+                langfuse_tracer.end_span(
+                    trace_id=langfuse_trace_id,
+                    span_id=llm_span_id,
+                    output=llm_output,
+                    usage=usage_data,
+                )
 
             # 4. 根据是否有工具调用，处理输出
             if tool_calls:
@@ -2239,12 +2268,14 @@ BEST: 编号"""
                         # 【Langfuse 追踪】创建工具 Span
                         tool_span_id = None
                         if is_langfuse_enabled():
-                            tool_span_id = langfuse_tracer.create_span(
+                            tool_result = langfuse_tracer.create_span(
                                 trace_id=langfuse_trace_id,
                                 span_name=f"tool.{tool_name}",
                                 span_type="TOOL",
+                                parent_observation_id=llm_obs_id,
                                 input={"tool": tool_name, "args": tool_args}
                             )
+                            tool_span_id = tool_result[0] if isinstance(tool_result, tuple) else None
 
                         # 执行工具
                         result = await self._execute_tool(tool_name, tool_args, trace_id=langfuse_trace_id)
