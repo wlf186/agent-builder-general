@@ -371,7 +371,7 @@ class LangfuseTracer:
         metadata: Optional[Dict] = None
     ):
         """追踪 LLM 调用的上下文管理器"""
-        span_id = self.create_span(
+        result = self.create_span(
             trace_id=trace_id,
             span_name=f"llm.{provider}.{model}",
             parent_observation_id=parent_observation_id,
@@ -379,6 +379,7 @@ class LangfuseTracer:
             input={"model": model, "provider": provider, "prompt_preview": prompt[:200]},
             metadata=metadata or {}
         )
+        span_id = result[0] if isinstance(result, tuple) else None
 
         start_time = time.time()
 
@@ -424,7 +425,7 @@ class LangfuseTracer:
         metadata: Optional[Dict] = None
     ):
         """追踪工具调用的上下文管理器"""
-        span_id = self.create_span(
+        result = self.create_span(
             trace_id=trace_id,
             span_name=f"tool.{tool_type}.{tool_name}",
             parent_observation_id=parent_observation_id,
@@ -432,6 +433,7 @@ class LangfuseTracer:
             input={"tool": tool_name, "args": tool_args},
             metadata=metadata or {}
         )
+        span_id = result[0] if isinstance(result, tuple) else None
 
         start_time = time.time()
 
