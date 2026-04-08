@@ -26,6 +26,23 @@ class MCPToolAdapter:
     将 MCP 工具转换为 LangChain StructuredTool，支持原生工具绑定
     """
 
+    # 增强映射表覆盖的工具名集合（类级别缓存）
+    _ENHANCED_TOOL_NAMES: set = None
+
+    @classmethod
+    def _get_enhanced_tool_names(cls) -> set:
+        """获取所有有增强配置的工具名集合"""
+        if cls._ENHANCED_TOOL_NAMES is None:
+            cls._ENHANCED_TOOL_NAMES = (
+                set({
+                    "evaluate", "add", "subtract", "multiply", "divide",
+                    "power", "sqrt", "get_joke", "list_categories",
+                    "get_jokes_by_category", "get_coin_price", "get_market_data",
+                    "load_skill", "execute_skill", "calculator", "cold-jokes", "coingecko",
+                })
+            )
+        return cls._ENHANCED_TOOL_NAMES
+
     def __init__(self, mcp_manager: 'MCPManager'):
         """
         初始化适配器
@@ -225,33 +242,19 @@ class MCPToolAdapter:
         """
         增强工具描述，添加强制性前缀、使用场景提示和触发关键词
 
-        【AC130-202603141800 P1 修复】
-        添加强制性前缀 "[MANDATORY]" 提升工具调用优先级
-
-        Args:
-            mcp_tool: MCP 工具
-
-        Returns:
-            增强后的描述
+        优化：对未映射工具直接返回原始描述，跳过增强流程
         """
         base_desc = mcp_tool.description or mcp_tool.name
 
-        # ========================================
-        # 【P1 修复】强制性前缀
-        # 目的：让 LLM 理解工具的必须使用性
-        # ========================================
+        # 短路：工具不在增强映射表中，直接返回原始描述
+        if mcp_tool.name not in self._get_enhanced_tool_names():
+            return base_desc
+
         mandatory_prefix = self._get_mandatory_prefix(mcp_tool.name)
-
-        # 根据工具名称添加场景提示
         hints = self._get_tool_hints(mcp_tool.name)
-
-        # 根据工具名称添加触发关键词
         keywords = self._get_trigger_keywords(mcp_tool.name)
-
-        # 添加 Few-shot 调用示例
         examples = self._get_few_shot_examples(mcp_tool.name)
 
-        # 组合增强描述
         enhanced = base_desc
 
         if mandatory_prefix:
