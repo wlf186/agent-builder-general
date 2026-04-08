@@ -123,6 +123,9 @@ class AgentEngine:
         # ====================================================================
         self._last_input_tokens: int = 0
         self._last_output_tokens: int = 0
+        # 后备估算：当 API 不返回 usage_metadata 时，基于内容字符数估算
+        self._last_input_chars: int = 0
+        self._last_output_chars: int = 0
 
     def _refresh_skill_tool_if_needed(self):
         """检查并刷新skill_tool的enabled_skills（用于配置热更新）"""
@@ -150,6 +153,7 @@ class AgentEngine:
                     base_url=service.base_url,
                     api_key=service.api_key or "not-needed",  # Ollama不需要API key
                     temperature=self.config.temperature,
+                    stream_usage=True,  # 启用流式响应中的 token 使用统计
                 )
                 # 绑定工具到 LLM
                 self._bind_tools_to_llm()
@@ -174,6 +178,7 @@ class AgentEngine:
                 base_url="https://open.bigmodel.cn/api/coding/paas/v4",
                 api_key=api_key,
                 temperature=self.config.temperature,
+                stream_usage=True,  # 启用流式响应中的 token 使用统计
             )
         else:
             # 默认使用Ollama
@@ -1830,17 +1835,10 @@ BEST: 编号"""
             system_prompt += file_context
             system_prompt += "\n\n请优先处理用户上传的文件内容。"
 
-        # 构建统一的工具描述，所有工具一视同仁
+        # 构建非 MCP 工具的提示（MCP 工具已通过 bind_tools() 提供）
         tools_context_parts = []
 
-        # 1. MCP 工具
-        if self.mcp_manager and self.mcp_manager.all_tools:
-            for mcp_tool in self.mcp_manager.all_tools:
-                tools_context_parts.append(
-                    f"### {mcp_tool.name}\n{mcp_tool.description}\n"
-                )
-
-        # 2. Skill 工具
+        # 1. Skill 工具（保留提示，bind_tools Schema 不够直观）
         if self.skill_tool and self.skill_tool.enabled_skills:
             for skill_name in self.skill_tool.enabled_skills:
                 skill_desc = self.skill_tool.get_skill_description(skill_name)
@@ -1848,7 +1846,7 @@ BEST: 编号"""
                     f"### load_skill ({skill_name})\n{skill_desc}\n"
                 )
 
-        # 3. RAG 工具（如果配置了知识库）
+        # 2. RAG 工具（如果配置了知识库）
         if self.config.knowledge_bases and self.kb_manager:
             kb_descriptions = []
             for kb_id in self.config.knowledge_bases:
@@ -1864,7 +1862,7 @@ BEST: 编号"""
                     f"{chr(10).join(kb_descriptions)}\n"
                 )
 
-        # 4. 子 Agent 工具
+        # 3. 子 Agent 工具
         sub_agents = self.get_sub_agent_names()
         if sub_agents:
             for sub_agent in sub_agents:
@@ -1873,43 +1871,15 @@ BEST: 编号"""
                     f"### {tool_name}\n调用子Agent '{sub_agent}'来处理特定任务\n"
                 )
 
-        tools_context = "\n".join(tools_context_parts)
-
-        # 构建技能加载规则和示例
-        if self.skill_tool and self.skill_tool.enabled_skills:
-            skills_list = ", ".join([f'"{name}"' for name in self.skill_tool.enabled_skills[:3]])
-            skill_example = f'{{"tool": "load_skill", "arguments": {{"skill_name": "{self.skill_tool.enabled_skills[0]}"}}}}'
-        else:
-            skills_list = "无"
-            skill_example = ""
-
-        # 构建子Agent示例
-        sub_agent_example = ""
-        if sub_agents:
-            first_sub_agent = sub_agents[0]
-            tool_name = f"call_agent_{first_sub_agent.lower().replace('-', '_').replace(' ', '_')}"
-            sub_agent_example = f'''
-### 示例5：调用子Agent
-用户：让 {first_sub_agent} 处理这个任务
-助手:{{"tool": "{tool_name}", "arguments": {{"message": "任务描述"}}}}
-'''
-
-        # 动态注入工具描述
-        if tools_context:
+        # 动态注入非 MCP 工具提示
+        if tools_context_parts:
+            tools_context = "\n".join(tools_context_parts)
             system_prompt += f"""
 
-## 可用工具
+## 辅助工具
 
 {tools_context}
 
-## 工具使用规则
-
-1. 根据用户问题选择合适的工具
-2. 如果问题涉及内部文档、公司制度等，使用 rag_retrieve 检索知识库
-3. 如果需要计算、查询外部数据等，使用相应的 MCP 工具
-4. 如果需要处理特定格式的文件（PDF、DOCX 等），先加载对应的 Skill
-5. 调用工具时使用 JSON 格式
-{sub_agent_example}
 """
 
         messages = [SystemMessage(content=system_prompt)]
@@ -2006,6 +1976,13 @@ BEST: 编号"""
             # ============================================================================
             # 【AC130-202603150000】LLM 流式输出异常处理
             # ============================================================================
+            # 记录输入消息字符数，用于后备 token 估算
+            iteration_input_chars = sum(
+                len(str(getattr(m, 'content', '')))
+                for m in messages
+                if hasattr(m, 'content') and m.content
+            )
+            iteration_output_chars = 0
             try:
                 async for chunk in llm_to_use.astream(messages):
                     # 【AC130-202603222100】检测原生 tool_calls（bind_tools 模式）
@@ -2066,6 +2043,18 @@ BEST: 编号"""
                             self._last_output_tokens = iteration_output_tokens
                         except Exception:
                             pass
+
+                    # 累计输出字符数（用于后备 token 估算）
+                    chunk_content = getattr(chunk, 'content', None)
+                    if chunk_content:
+                        iteration_output_chars += len(chunk_content)
+
+                # 流式结束后：如果 API 未返回 usage_metadata，使用字符数估算
+                if self._last_input_tokens == 0 and iteration_input_chars > 0:
+                    self._last_input_tokens = self._estimate_tokens_from_chars(iteration_input_chars)
+                    self._last_output_tokens = self._estimate_tokens_from_chars(iteration_output_chars)
+                    self._last_input_chars = iteration_input_chars
+                    self._last_output_chars = iteration_output_chars
 
             # ============================================================================
             # 【AC130-202603150000】LLM 流式输出异常捕获
@@ -2658,6 +2647,8 @@ BEST: 编号"""
         """
         获取最后一次 LLM 调用的 token 使用信息。
 
+        优先使用 API 返回的 usage_metadata，不可用时回退到字符数估算。
+
         Returns:
             dict: 包含 input_tokens 和 output_tokens 的字典
         """
@@ -2665,3 +2656,13 @@ BEST: 编号"""
             "input_tokens": self._last_input_tokens,
             "output_tokens": self._last_output_tokens
         }
+
+    @staticmethod
+    def _estimate_tokens_from_chars(char_count: int) -> int:
+        """
+        基于字符数估算 token 数量。
+        中文约 1.5 字符/token，英文约 4 字符/token，混合内容取 2 字符/token。
+        """
+        if char_count <= 0:
+            return 0
+        return max(1, char_count // 2)
