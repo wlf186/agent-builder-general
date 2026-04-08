@@ -865,49 +865,34 @@ Returns:
         # 构建工具匹配规则表
         tool_matching_rules = []
         if has_calculator:
-            tool_matching_rules.append("| 计算、加、减、乘、除、等于、数学 | evaluate | \"100+200等于多少\" |")
+            tool_matching_rules.append("| 计算、加、减、乘、除、等于、数学 | evaluate |")
         if has_jokes:
-            tool_matching_rules.append("| 笑话、幽默、搞笑、逗我 | get_joke | \"讲个笑话\" |")
+            tool_matching_rules.append("| 笑话、幽默、搞笑、逗我 | get_joke |")
         if has_coingecko:
-            tool_matching_rules.append("| 比特币、BTC、价格、市值、加密货币 | get_coin_price | \"比特币价格\" |")
+            tool_matching_rules.append("| 比特币、BTC、价格、市值、加密货币 | get_coin_price |")
         if has_skills:
-            tool_matching_rules.append(f"| PDF、DOCX、文档、读取 | load_skill + execute_skill | \"读取这个PDF\" |")
+            tool_matching_rules.append("| PDF、DOCX、文档、读取 | load_skill + execute_skill |")
 
         # 工具匹配规则区块
         tool_matching_block = ""
         if tool_matching_rules:
             tool_matching_block = f"""
 
-## 🔴 工具匹配规则（强制执行）
+## 工具匹配规则
 
-| 用户问题关键词 | 必须调用的工具 | 示例问题 |
-|--------------|--------------|---------|
+| 用户问题关键词 | 必须调用的工具 |
+|--------------|--------------|
 {chr(10).join(tool_matching_rules)}
-
-**核心原则**：当用户问题包含上述关键词时，**必须调用对应工具**，不得直接回答！
 
 """
 
-        # 负向约束区块
+        # 负向约束区块（精简版）
         negative_constraints = """
 
-## 🔴 禁止行为（严格遵守）
+## 禁止行为
 
-你是一个**没有内置能力**的 AI 助手，以下行为**严格禁止**：
-
-1. **禁止数学计算**：不要自己进行任何数学运算（包括简单加减法）
-2. **禁止编造内容**：不要编造笑话、故事、示例、价格数据
-3. **禁止使用训练数据**：即使你"知道"答案，也必须先调用工具验证
-4. **禁止直接回答**：当可用工具列表中有相关工具时，禁止直接给出答案
-
-### 检测机制
-
-每次回答前，自问：
-1. 用户的问题是否涉及数学计算？ → 必须调用 evaluate
-2. 用户的问题是否需要特定数据（笑话、价格、新闻）？ → 必须调用对应工具
-3. 用户的问题是否与 PDF/DOCX/技能相关？ → 必须调用 load_skill
-
-如果以上任一答案为"是"，**必须先调用工具**，工具返回后再基于结果回答。
+1. **禁止数学计算**：不要自己进行任何数学运算，必须使用计算工具
+2. **禁止编造内容**：不要编造笑话、价格数据等需要工具验证的信息
 
 """
 
